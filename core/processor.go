@@ -97,6 +97,18 @@ func (p *Processor) processSSH(
 	adapterID string,
 	observation protocol.Observation,
 ) error {
+	stored, err := p.store.HasSSHObservation(ctx, observation)
+	if err != nil {
+		p.poisoned = err
+		return err
+	}
+	if stored {
+		if err := p.store.CommitCursor(ctx, adapterID, observation.Cursor); err != nil {
+			p.poisoned = err
+			return err
+		}
+		return nil
+	}
 	observedAt, _ := time.Parse(time.RFC3339Nano, observation.ObservedAt)
 	sourceIP, _ := netip.ParseAddr(observation.SourceIP)
 	failure := classifier.SSHFailure{

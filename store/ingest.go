@@ -32,6 +32,38 @@ type PromotionUpdate struct {
 	RuleIDs []string
 }
 
+func (s *Store) HasSSHObservation(
+	ctx context.Context,
+	observation protocol.Observation,
+) (bool, error) {
+	if err := protocol.ValidateObservation(observation); err != nil {
+		return false, err
+	}
+	if observation.Kind != protocol.ObservationSSHAuthFailure {
+		return false, errors.New("stored replay lookup requires an SSH observation")
+	}
+	eventHash, err := observationHash(observation, "")
+	if err != nil {
+		return false, err
+	}
+	var existingHash string
+	err = s.db.QueryRowContext(
+		ctx,
+		`SELECT event_hash FROM observations WHERE event_id = ?`,
+		observation.EventID,
+	).Scan(&existingHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read stored SSH observation: %w", err)
+	}
+	if existingHash != eventHash {
+		return false, fmt.Errorf("%w: %s", ErrEventIDCollision, observation.EventID)
+	}
+	return true, nil
+}
+
 func (s *Store) CommitObservation(
 	ctx context.Context,
 	adapterID string,
@@ -114,20 +146,10 @@ func insertObservation(
 	input ClassifiedObservation,
 ) (bool, error) {
 	observation := input.Observation
-	hashObservation := observation
-	hashObservation.Cursor = ""
-	if hashObservation.HTTP != nil {
-		hashObservation.HTTP = &protocol.HTTPObservation{
-			RequestTarget: input.PublicPath,
-			Status:        hashObservation.HTTP.Status,
-		}
-	}
-	encoded, err := json.Marshal(hashObservation)
+	eventHash, err := observationHash(observation, input.PublicPath)
 	if err != nil {
-		return false, fmt.Errorf("encode observation hash input: %w", err)
+		return false, err
 	}
-	sum := sha256.Sum256(encoded)
-	eventHash := hex.EncodeToString(sum[:])
 
 	var username any
 	var path any
@@ -192,6 +214,23 @@ func insertObservation(
 		return false, fmt.Errorf("%w: %s", ErrEventIDCollision, observation.EventID)
 	}
 	return false, nil
+}
+
+func observationHash(observation protocol.Observation, publicPath string) (string, error) {
+	hashObservation := observation
+	hashObservation.Cursor = ""
+	if hashObservation.HTTP != nil {
+		hashObservation.HTTP = &protocol.HTTPObservation{
+			RequestTarget: publicPath,
+			Status:        hashObservation.HTTP.Status,
+		}
+	}
+	encoded, err := json.Marshal(hashObservation)
+	if err != nil {
+		return "", fmt.Errorf("encode observation hash input: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func applyPromotions(ctx context.Context, tx *sql.Tx, updates []PromotionUpdate) error {

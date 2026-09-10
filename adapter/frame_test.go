@@ -59,3 +59,29 @@ func TestDecoderRejectsOversizedAndTrailingFrames(t *testing.T) {
 		t.Fatal("decoder accepted invalid UTF-8")
 	}
 }
+
+func TestControlDecoderRequiresResumeThenAcknowledgements(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"resume","resume":{"cursor":"cursor-1"}}`,
+		`{"type":"ack","ack":{"event_id":"event-2","cursor":"cursor-2"}}`,
+		`{"type":"ack","ack":{"cursor":"cursor-3"}}`,
+		"",
+	}, "\n")
+	decoder := NewControlDecoder(strings.NewReader(input), 1024)
+	if frame, err := decoder.Next(); err != nil || frame.Type != FrameResume {
+		t.Fatalf("resume frame = %#v, %v", frame, err)
+	}
+	for range 2 {
+		if frame, err := decoder.Next(); err != nil || frame.Type != FrameAck {
+			t.Fatalf("ack frame = %#v, %v", frame, err)
+		}
+	}
+
+	invalid := NewControlDecoder(
+		strings.NewReader(`{"type":"ack","ack":{"cursor":"cursor-1"}}`+"\n"),
+		1024,
+	)
+	if _, err := invalid.Next(); err == nil {
+		t.Fatal("control decoder accepted acknowledgement before resume")
+	}
+}

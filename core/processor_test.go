@@ -61,6 +61,11 @@ func TestProcessorRestoresSSHWindowAndPromotesAtomically(t *testing.T) {
 	if err := processor.RestoreSSH(ctx, start, 100); err != nil {
 		t.Fatal(err)
 	}
+	replayed := sshObservation(4, start.Add(4*time.Minute))
+	replayed.Cursor = "cursor-4-replayed"
+	if err := processor.Process(ctx, "openssh", replayed); err != nil {
+		t.Fatalf("durable SSH replay was not acknowledged: %v", err)
+	}
 	if err := processor.Process(ctx, "openssh", sshObservation(5, start.Add(5*time.Minute))); err != nil {
 		t.Fatal(err)
 	}

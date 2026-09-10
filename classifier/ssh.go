@@ -237,6 +237,10 @@ func (c *SSHClassifier) Prune(watermark time.Time) error {
 	return nil
 }
 
+func (c *SSHClassifier) MaxTotalEvents() int {
+	return c.config.MaxTotalEvents
+}
+
 func (c *SSHClassifier) promote(
 	state *sshSourceState,
 	updates map[string]Promotion,

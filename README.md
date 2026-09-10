@@ -26,7 +26,9 @@ Go 1.24 or newer is required.
 
 ```sh
 go test ./...
+go build ./cmd/probing-agent
 ```
 
 See [`docs/protocol-v1.md`](docs/protocol-v1.md) for wire semantics and
-[`docs/threat-model.md`](docs/threat-model.md) for trust boundaries.
+[`docs/threat-model.md`](docs/threat-model.md) for trust boundaries. Agent
+configuration is documented in [`docs/agent.md`](docs/agent.md).
