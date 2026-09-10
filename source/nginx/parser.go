@@ -2,6 +2,7 @@ package nginx
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gasserp/probing/protocol"
 	"github.com/gasserp/probing/source"
@@ -11,6 +12,7 @@ type accessRecord struct {
 	Time       string `json:"time"`
 	RemoteAddr string `json:"remote_addr"`
 	RequestURI string `json:"request_uri"`
+	Request    string `json:"request"`
 	Status     int    `json:"status"`
 }
 
@@ -31,6 +33,13 @@ func Parse(line []byte, cursor string) (protocol.Observation, error) {
 	if err != nil {
 		return protocol.Observation{}, err
 	}
+	requestTarget := record.RequestURI
+	if requestTarget == "" {
+		requestTarget, err = requestTargetFromLine(record.Request)
+		if err != nil {
+			return protocol.Observation{}, err
+		}
+	}
 
 	observation := protocol.Observation{
 		SchemaVersion: protocol.ObservationSchemaVersion,
@@ -40,7 +49,7 @@ func Parse(line []byte, cursor string) (protocol.Observation, error) {
 		ObservedAt:    observedAt,
 		SourceIP:      address,
 		HTTP: &protocol.HTTPObservation{
-			RequestTarget: record.RequestURI,
+			RequestTarget: requestTarget,
 			Status:        record.Status,
 		},
 	}
@@ -48,4 +57,12 @@ func Parse(line []byte, cursor string) (protocol.Observation, error) {
 		return protocol.Observation{}, fmt.Errorf("validate Nginx observation: %w", err)
 	}
 	return observation, nil
+}
+
+func requestTargetFromLine(request string) (string, error) {
+	parts := strings.Fields(request)
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid Nginx request line")
+	}
+	return parts[1], nil
 }
