@@ -50,7 +50,14 @@ services:
       - ALL
     cap_add:
       - CHOWN
-      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/health | grep -qx ok"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     tmpfs:
       - /var/cache/nginx
       - /var/run

@@ -46,7 +46,7 @@ az vm run-command invoke \
   --resource-group probing-collector \
   --name probing-collector-01 \
   --command-id RunShellScript \
-  --scripts 'set -eu; cloud-init status --wait --long; cd /opt/probing; running="$(docker compose -f deploy/docker-compose.yml ps --services --status running)"; for service in collector cowrie ingress nginx; do printf "%s\n" "$running" | grep -qx "$service"; done; docker compose -f deploy/docker-compose.yml ps'
+  --scripts 'set -eu; cloud-init status --wait --long; cd /opt/probing; running="$(docker compose -f deploy/docker-compose.yml ps --services --status running)"; for service in collector cowrie ingress nginx; do printf "%s\n" "$running" | grep -qx "$service"; done; curl --fail --silent --show-error http://127.0.0.1/health; timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/22"; docker compose -f deploy/docker-compose.yml ps'
 ```
 
 Then remove public IPv4 from the NIC by redeploying the IPv6-only profile:
