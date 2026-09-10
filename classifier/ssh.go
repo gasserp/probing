@@ -95,30 +95,14 @@ func NewSSHClassifier(config SSHConfig) (*SSHClassifier, error) {
 }
 
 func (c *SSHClassifier) Process(failure SSHFailure) ([]Promotion, error) {
-	if failure.EventID == "" {
-		return nil, errors.New("SSH event ID is required")
+	ignored, err := c.ShouldIgnore(failure)
+	if err != nil {
+		return nil, err
 	}
-	if !failure.SourceIP.IsValid() || failure.SourceIP.IsUnspecified() {
-		return nil, errors.New("SSH source IP is invalid")
-	}
-	if failure.SourceIP.Zone() != "" {
-		return nil, errors.New("SSH source IP must not contain a zone")
-	}
-	failure.SourceIP = failure.SourceIP.Unmap()
-	if failure.Username == "" {
-		return nil, errors.New("SSH username is required")
-	}
-	if failure.ObservedAt.Location() != time.UTC {
-		return nil, errors.New("SSH observation time must be UTC")
-	}
-	if _, excluded := c.excludedUsers[failure.Username]; excluded {
+	if ignored {
 		return nil, nil
 	}
-	for _, prefix := range c.config.TrustedNetworks {
-		if prefix.Contains(failure.SourceIP) {
-			return nil, nil
-		}
-	}
+	failure.SourceIP = failure.SourceIP.Unmap()
 
 	state := c.sources[failure.SourceIP]
 	if state == nil {
@@ -210,6 +194,34 @@ func (c *SSHClassifier) Process(failure SSHFailure) ([]Promotion, error) {
 		}
 	}
 	return result, nil
+}
+
+func (c *SSHClassifier) ShouldIgnore(failure SSHFailure) (bool, error) {
+	if failure.EventID == "" {
+		return false, errors.New("SSH event ID is required")
+	}
+	if !failure.SourceIP.IsValid() || failure.SourceIP.IsUnspecified() {
+		return false, errors.New("SSH source IP is invalid")
+	}
+	if failure.SourceIP.Zone() != "" {
+		return false, errors.New("SSH source IP must not contain a zone")
+	}
+	if failure.Username == "" {
+		return false, errors.New("SSH username is required")
+	}
+	if failure.ObservedAt.Location() != time.UTC {
+		return false, errors.New("SSH observation time must be UTC")
+	}
+	if _, excluded := c.excludedUsers[failure.Username]; excluded {
+		return true, nil
+	}
+	address := failure.SourceIP.Unmap()
+	for _, prefix := range c.config.TrustedNetworks {
+		if prefix.Contains(address) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *SSHClassifier) Prune(watermark time.Time) error {
