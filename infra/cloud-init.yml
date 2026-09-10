@@ -1,0 +1,32 @@
+#cloud-config
+package_update: true
+bootcmd:
+  - [systemctl, mask, --now, ssh.service, ssh.socket]
+
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+
+runcmd:
+  - install -d -o 65532 -g 65532 -m 0750 /var/lib/probing
+  - systemctl enable --now docker
+  - |
+    set -eu
+    fallocate -l 2G /swapfile
+    chmod 0600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    git clone --depth 1 https://github.com/gasserp/probing.git /opt/probing
+    cd /opt/probing
+    docker compose -f deploy/docker-compose.yml build collector
+    docker compose -f deploy/docker-compose.yml pull --ignore-buildable
+    docker compose -f deploy/docker-compose.yml up -d --no-build
+    sleep 15
+    for service in collector nginx cowrie; do
+      if ! docker compose -f deploy/docker-compose.yml ps --services --status running | grep -qx "$service"; then
+        docker compose -f deploy/docker-compose.yml down
+        exit 1
+      fi
+    done
