@@ -8,14 +8,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    ports:
-      - "22:2222"
-      - "80:8080"
+    cap_add:
+      - NET_BIND_SERVICE
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    networks:
-      - public
-      - decoy
+    network_mode: host
     depends_on:
       - cowrie
       - nginx
@@ -65,7 +62,8 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - nginx-logs:/var/log/nginx/probing
     networks:
-      - decoy
+      decoy:
+        ipv4_address: 172.30.0.3
 
   cowrie:
     image: cowrie/cowrie:3.0.13@sha256:42e01e0e5fe705a0a63dacc0f1992b2d230740ac149af7675f48197abf740d44
@@ -80,12 +78,15 @@ services:
       - cowrie-etc:/cowrie/cowrie-git/etc
       - cowrie-var:/cowrie/cowrie-git/var
     networks:
-      - decoy
+      decoy:
+        ipv4_address: 172.30.0.2
 
 networks:
-  public:
   decoy:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   nginx-logs:
