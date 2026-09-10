@@ -2,6 +2,7 @@ services:
   ingress:
     image: haproxy:3.2-alpine@sha256:6343ce34a132a5dceaa24767d739df2bd519f8f7c1079ae39e4821334e8eb42e
     restart: unless-stopped
+    user: "0:0"
     read_only: true
     security_opt:
       - no-new-privileges:true
