@@ -8,6 +8,7 @@ Set the target subscription:
 
 ```sh
 subscription=18d04159-3160-4eff-8437-3a87b95374ef
+computeProfile=spot-low-cost
 ```
 
 Preview the temporary dual-stack bootstrap. The public IPv4 gives package
@@ -20,7 +21,7 @@ az deployment sub what-if \
   --template-file infra/main.bicep \
   --parameters \
     networkProfile=dual-stack \
-    computeProfile=burstable-free \
+    computeProfile="$computeProfile" \
     adminSshPublicKey="$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
@@ -34,7 +35,7 @@ az deployment sub create \
   --template-file infra/main.bicep \
   --parameters \
     networkProfile=dual-stack \
-    computeProfile=burstable-free \
+    computeProfile="$computeProfile" \
     adminSshPublicKey="$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
@@ -59,7 +60,8 @@ az deployment sub create \
   --template-file infra/main.bicep \
   --parameters \
     networkProfile=ipv6-only \
-    computeProfile=burstable-free \
+    computeProfile="$computeProfile" \
+    includeCloudInit=false \
     adminSshPublicKey="$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
