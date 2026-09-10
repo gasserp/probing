@@ -4,6 +4,7 @@ param vmSize string
 param isSpot bool
 param maxSpotPrice string
 param dualStack bool
+param includeCloudInit bool
 @secure()
 param adminSshPublicKey string
 
@@ -156,10 +157,9 @@ resource virtualMachine 'Microsoft.Compute/virtualMachines@2024-07-01' = {
         }
       ]
     }
-    osProfile: {
+    osProfile: union({
       computerName: vmName
       adminUsername: 'probeadmin'
-      customData: base64(cloudInit)
       linuxConfiguration: {
         disablePasswordAuthentication: true
         ssh: {
@@ -171,7 +171,9 @@ resource virtualMachine 'Microsoft.Compute/virtualMachines@2024-07-01' = {
           ]
         }
       }
-    }
+    }, includeCloudInit ? {
+      customData: base64(cloudInit)
+    } : {})
     storageProfile: {
       imageReference: {
         publisher: 'Canonical'

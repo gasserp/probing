@@ -21,6 +21,7 @@ param adminSshPublicKey string
 param resourceGroupName string = 'probing-collector'
 param vmName string = 'probing-collector-01'
 param maxSpotPrice string = '0.02'
+param includeCloudInit bool = true
 
 var isSpot = computeProfile == 'spot-low-cost'
 var vmSize = isSpot ? 'Standard_A1_v2' : 'Standard_B1s'
@@ -41,6 +42,7 @@ module collector 'modules/collector.bicep' = {
     maxSpotPrice: maxSpotPrice
     dualStack: networkProfile == 'dual-stack'
     adminSshPublicKey: adminSshPublicKey
+    includeCloudInit: includeCloudInit
   }
 }
 
