@@ -27,6 +27,7 @@ Go 1.24 or newer is required.
 ```sh
 go test ./...
 go build ./cmd/probing-agent
+go build ./cmd/probing-file-adapter
 ```
 
 See [`docs/protocol-v1.md`](docs/protocol-v1.md) for wire semantics and

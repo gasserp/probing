@@ -35,6 +35,15 @@ file tailer supplies a stable file cursor.
 
 ## Installation boundary
 
-The parser packages are currently library components. The next milestone wraps
-them in standalone adapter processes with protocol negotiation, durable cursor
-resume, acknowledgements, backpressure, and restart behavior.
+Nginx and Cowrie JSON files can be followed by the standalone adapter:
+
+```sh
+probing-file-adapter --format nginx --file /var/log/nginx/probing.jsonl
+probing-file-adapter --format cowrie --file /var/log/cowrie/cowrie.json
+```
+
+It identifies files by device and inode, resumes at the last acknowledged byte
+offset, detects rotation or truncation, bounds lines before parsing, and waits
+for a durable core acknowledgement after every observation or checkpoint.
+OpenSSH will use a separate journal adapter because journal cursors are not file
+offsets.
