@@ -190,5 +190,62 @@ resource virtualMachine 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   }
 }
 
+resource spotRestarter 'Microsoft.Logic/workflows@2019-05-01' = if (isSpot) {
+  name: '${vmName}-spot-restarter'
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    state: 'Enabled'
+    definition: {
+      '$schema': 'https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#'
+      contentVersion: '1.0.0.0'
+      parameters: {}
+      triggers: {
+        retry: {
+          type: 'Recurrence'
+          recurrence: {
+            frequency: 'Minute'
+            interval: 15
+          }
+        }
+      }
+      actions: {
+        start_vm: {
+          type: 'Http'
+          inputs: {
+            method: 'POST'
+            uri: 'https://management.azure.com${virtualMachine.id}/start?api-version=2024-07-01'
+            authentication: {
+              type: 'ManagedServiceIdentity'
+              audience: 'https://management.azure.com/'
+            }
+          }
+          runtimeConfiguration: {
+            contentTransfer: {
+              transferMode: 'Chunked'
+            }
+          }
+        }
+      }
+      outputs: {}
+    }
+  }
+}
+
+resource spotRestarterRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (isSpot) {
+  scope: virtualMachine
+  name: guid(virtualMachine.id, spotRestarter.id, 'virtual-machine-contributor')
+  properties: {
+    principalId: spotRestarter.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '9980e02c-c2be-4d73-94e8-173b1dc7cf3c'
+    )
+  }
+}
+
 output publicIPv6 string = publicIPv6.properties.ipAddress
 output publicIPv4 string = dualStack ? publicIPv4.properties.ipAddress : ''

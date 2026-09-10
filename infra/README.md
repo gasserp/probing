@@ -78,8 +78,10 @@ az network public-ip show \
 ```
 
 Use `computeProfile=spot-low-cost` for `Standard_A1_v2` Spot with a default
-maximum price of USD 0.02/hour. Spot has no SLA and a deallocated VM does not
-restart automatically.
+maximum price of USD 0.02/hour. Spot has no SLA. This profile also creates a
+consumption Logic App whose managed identity can only manage this VM. It calls
+the idempotent VM start operation every 15 minutes, so an evicted VM retries
+when Spot capacity becomes available while retaining its disk and IPv6 address.
 
 Delete every resource:
 
