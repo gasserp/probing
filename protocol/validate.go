@@ -149,6 +149,21 @@ func ValidateBatchPayload(payload BatchPayload) error {
 	return nil
 }
 
+func ValidateRuleIDs(ruleIDs []string) error {
+	if len(ruleIDs) == 0 || len(ruleIDs) > MaxRuleIDs || !slices.IsSorted(ruleIDs) {
+		return fmt.Errorf("rule_ids must contain between 1 and %d sorted entries", MaxRuleIDs)
+	}
+	for i, ruleID := range ruleIDs {
+		if len(ruleID) > MaxRuleIDBytes || !ruleIDPattern.MatchString(ruleID) {
+			return fmt.Errorf("rule_id %d is invalid", i)
+		}
+		if i > 0 && ruleIDs[i-1] == ruleID {
+			return errors.New("rule_ids must be unique")
+		}
+	}
+	return nil
+}
+
 func validateSequence(sequence string) error {
 	if sequence == "" || len(sequence) > MaxSequenceDigits || (len(sequence) > 1 && sequence[0] == '0') {
 		return errors.New("sequence must be a canonical unsigned decimal string")
@@ -245,17 +260,8 @@ func validateRecord(record BatchRecord, windowStart, windowEnd time.Time) error 
 		return errors.New("last hourly bucket does not match last_observed_at")
 	}
 
-	if len(record.RuleIDs) == 0 || len(record.RuleIDs) > MaxRuleIDs || !slices.IsSorted(record.RuleIDs) {
-		return fmt.Errorf("rule_ids must contain between 1 and %d sorted entries", MaxRuleIDs)
-	}
-
-	for i, ruleID := range record.RuleIDs {
-		if len(ruleID) > MaxRuleIDBytes || !ruleIDPattern.MatchString(ruleID) {
-			return fmt.Errorf("rule_id %d is invalid", i)
-		}
-		if i > 0 && record.RuleIDs[i-1] == ruleID {
-			return errors.New("rule_ids must be unique")
-		}
+	if err := ValidateRuleIDs(record.RuleIDs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -288,5 +294,6 @@ func recordSortKey(record BatchRecord) string {
 	if record.Kind == ObservationHTTPRequest {
 		value = record.Path
 	}
-	return string(record.Kind) + "\x00" + record.SourceIP + "\x00" + value + "\x00" + record.FirstObservedAt
+	return string(record.Kind) + "\x00" + record.SourceIP + "\x00" + value + "\x00" +
+		record.FirstObservedAt + "\x00" + strings.Join(record.RuleIDs, "\x1f")
 }

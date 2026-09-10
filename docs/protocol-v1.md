@@ -28,9 +28,10 @@ values, invalid UTF-8, and unsupported versions are rejected. The core records
 the selected version before it accepts observation frames.
 
 The core acknowledges an observation only after its event ID, source cursor,
-and content are durably committed. An adapter must resume from its last
-acknowledged cursor. A Unix-domain socket is a distinct, length-prefixed
-transport and will have its own specification before implementation.
+content, and every classifier promotion caused by that observation are durably
+committed in one transaction. An adapter must resume from its last acknowledged
+cursor. A Unix-domain socket is a distinct, length-prefixed transport and will
+have its own specification before implementation.
 
 ## SSH classifier
 
@@ -53,6 +54,11 @@ Classifier state is bounded by configured source, per-source event, and total
 event limits. Crossing a limit produces an error for quarantine rather than
 silently dropping or promoting input.
 
+Only observations older than the classifier watermark are eligible for a
+batch. Promotion changes to an observation already assigned to an immutable
+batch are rejected. This makes classifier finality an explicit precondition of
+batch creation.
+
 ## HTTP classifier
 
 The query and fragment are removed and never retained. Classification inspects
@@ -66,6 +72,9 @@ The published value is the exact request path after query/fragment removal,
 not the decoded representation. It is an exact eligible suspected-probe path;
 the system does not claim that intent or absence of personal data can be
 inferred from a status code and path.
+
+The local collision hash also uses this privacy-safe path projection. It never
+hashes the discarded query or fragment.
 
 ## Immutable batches
 
@@ -102,6 +111,8 @@ publishing milestone will set per-source daily and annual byte budgets before
 enabling public pushes. Acceptance stops visibly at a budget boundary; data is
 never silently truncated. A source must rotate to a reviewed annual repository
 or configured object-store archive before exceeding its repository ceiling.
+Pending-batch retrieval is one batch at a time, and the local store refuses to
+create more than 128 unpublished batches.
 
 ## Registration and recovery
 
