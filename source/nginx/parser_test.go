@@ -30,3 +30,26 @@ func TestParseNginxRejectsUnexpectedFields(t *testing.T) {
 		t.Fatal("Nginx parser accepted an unexpected field")
 	}
 }
+
+func TestParseNginxFallsBackToRequestLine(t *testing.T) {
+	observation, err := Parse(
+		[]byte(`{"time":"2026-09-10T19:01:02Z","remote_addr":"192.0.2.1","request_uri":"","request":"GET /%2e%2e/etc/passwd?ignored=true HTTP/1.1","status":400}`),
+		"inode=1;offset=12",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.HTTP.RequestTarget != "/%2e%2e/etc/passwd?ignored=true" {
+		t.Fatalf("request target = %q", observation.HTTP.RequestTarget)
+	}
+}
+
+func TestParseNginxRejectsMissingRequestTarget(t *testing.T) {
+	_, err := Parse(
+		[]byte(`{"time":"2026-09-10T19:01:02Z","remote_addr":"192.0.2.1","request_uri":"","request":"","status":400}`),
+		"inode=1;offset=13",
+	)
+	if err == nil {
+		t.Fatal("Nginx parser accepted a missing request target")
+	}
+}

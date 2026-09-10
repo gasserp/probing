@@ -76,6 +76,7 @@ services:
     cap_drop:
       - ALL
     volumes:
+      - ./cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg:ro
       - cowrie-etc:/cowrie/cowrie-git/etc
       - cowrie-var:/cowrie/cowrie-git/var
     networks:
