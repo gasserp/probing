@@ -12,6 +12,7 @@ The project is protocol-first. The current milestone provides:
 - a bounded NDJSON adapter framing contract;
 - normalized parsers for Nginx JSON, OpenSSH journal JSON, and Cowrie JSON;
 - SQLite/WAL-backed atomic cursor, observation, and promotion storage;
+- a fail-closed processor connecting classification and durable commits;
 - immutable, hash-chained pending batches with exact-byte retry; and
 - JSON Schemas and threat-model documentation.
 

@@ -64,19 +64,47 @@ func (s *Store) CommitObservation(
 	if err := applyPromotions(ctx, tx, promotions); err != nil {
 		return false, err
 	}
+	if err := advanceCursor(ctx, tx, adapterID, input.Observation.Cursor); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit observation transaction: %w", err)
+	}
+	return inserted, nil
+}
+
+func (s *Store) CommitCursor(ctx context.Context, adapterID, cursor string) error {
+	if !validText(adapterID, MaxAdapterIDBytes) {
+		return errors.New("adapter ID is invalid")
+	}
+	if !validText(cursor, protocol.MaxCursorBytes) {
+		return errors.New("adapter cursor is invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin cursor transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := advanceCursor(ctx, tx, adapterID, cursor); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit cursor transaction: %w", err)
+	}
+	return nil
+}
+
+func advanceCursor(ctx context.Context, tx *sql.Tx, adapterID, cursor string) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO adapter_cursors (adapter_id, cursor, updated_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(adapter_id) DO UPDATE SET
 			cursor = excluded.cursor,
 			updated_at = excluded.updated_at
-	`, adapterID, input.Observation.Cursor, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return false, fmt.Errorf("advance adapter cursor: %w", err)
+	`, adapterID, cursor, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("advance adapter cursor: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("commit observation transaction: %w", err)
-	}
-	return inserted, nil
+	return nil
 }
 
 func insertObservation(
