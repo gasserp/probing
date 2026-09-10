@@ -1,0 +1,27 @@
+{
+  "database_path": "/data/state.db",
+  "adapters": [
+    {
+      "id": "nginx",
+      "command": "/usr/local/bin/probing-file-adapter",
+      "args": ["--format", "nginx", "--file", "/logs/nginx/access.jsonl"]
+    },
+    {
+      "id": "cowrie",
+      "command": "/usr/local/bin/probing-file-adapter",
+      "args": ["--format", "cowrie", "--file", "/logs/cowrie/log/cowrie/cowrie.json"]
+    }
+  ],
+  "ssh": {
+    "window_seconds": 900,
+    "pair_threshold": 6,
+    "distinct_username_threshold": 6,
+    "excluded_usernames": [],
+    "trusted_cidrs": []
+  },
+  "http": {
+    "eligible_statuses": [400, 403, 404],
+    "excluded_exact_paths": ["/health"],
+    "excluded_path_prefixes": []
+  }
+}

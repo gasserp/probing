@@ -50,7 +50,7 @@ func Run(ctx context.Context, config Config, parser Parser, control io.Reader, o
 		return fmt.Errorf("read resume cursor: %w", err)
 	}
 
-	file, identity, offset, err := openAtCursor(config.Path, resume.Resume.Cursor)
+	file, identity, offset, err := openWithRetry(ctx, config, resume.Resume.Cursor)
 	if err != nil {
 		return err
 	}
@@ -106,6 +106,21 @@ func Run(ctx context.Context, config Config, parser Parser, control io.Reader, o
 				return err
 			}
 			reader.Reset(file)
+		}
+	}
+}
+
+func openWithRetry(ctx context.Context, config Config, resume string) (*os.File, fileIdentity, int64, error) {
+	for {
+		file, identity, offset, err := openAtCursor(config.Path, resume)
+		if err == nil {
+			return file, identity, offset, nil
+		}
+		if config.Once || !errors.Is(err, os.ErrNotExist) {
+			return nil, fileIdentity{}, 0, err
+		}
+		if err := waitForChange(ctx, config.PollInterval); err != nil {
+			return nil, fileIdentity{}, 0, err
 		}
 	}
 }

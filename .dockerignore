@@ -1,0 +1,6 @@
+.git
+.github
+deploy
+infra
+*.db
+*.log
