@@ -4,6 +4,7 @@ bootcmd:
   - [systemctl, mask, --now, ssh.service, ssh.socket]
 
 packages:
+  - curl
   - docker.io
   - docker-compose-v2
   - git
@@ -29,3 +30,5 @@ runcmd:
         exit 1
       fi
     done
+    curl --fail --silent --show-error http://127.0.0.1/health
+    timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22'
