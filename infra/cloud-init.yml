@@ -24,7 +24,7 @@ runcmd:
     docker compose -f deploy/docker-compose.yml pull --ignore-buildable
     docker compose -f deploy/docker-compose.yml up -d --no-build
     sleep 15
-    for service in collector nginx cowrie; do
+    for service in collector ingress nginx cowrie; do
       if ! docker compose -f deploy/docker-compose.yml ps --services --status running | grep -qx "$service"; then
         exit 1
       fi
