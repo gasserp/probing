@@ -175,8 +175,8 @@ resource virtualMachine 'Microsoft.Compute/virtualMachines@2024-07-01' = {
     storageProfile: {
       imageReference: {
         publisher: 'Canonical'
-        offer: 'ubuntu-24_04-lts'
-        sku: 'server'
+        offer: isSpot ? '0001-com-ubuntu-server-jammy' : 'ubuntu-24_04-lts'
+        sku: isSpot ? '22_04-lts' : 'server'
         version: 'latest'
       }
       osDisk: {
