@@ -9,7 +9,9 @@ The project is protocol-first. The current milestone provides:
 - versioned observation and immutable batch models;
 - RFC 8785 canonicalization and Ed25519 batch signatures;
 - precise SSH threshold and HTTP traversal classifiers;
-- a bounded NDJSON adapter framing contract; and
+- a bounded NDJSON adapter framing contract;
+- SQLite/WAL-backed atomic cursor, observation, and promotion storage;
+- immutable, hash-chained pending batches with exact-byte retry; and
 - JSON Schemas and threat-model documentation.
 
 Publishing exact source IP addresses, attempted usernames, and eligible
