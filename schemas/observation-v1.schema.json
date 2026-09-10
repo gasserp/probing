@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gasserp/probing/schemas/observation-v1.schema.json",
+  "title": "Probing adapter observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "cursor",
+    "kind",
+    "observed_at",
+    "source_ip"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "probing.observation/v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "kind": {
+      "enum": [
+        "ssh_auth_failure",
+        "http_request"
+      ]
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "source_ip": {
+      "type": "string",
+      "anyOf": [
+        {
+          "format": "ipv4"
+        },
+        {
+          "format": "ipv6"
+        }
+      ]
+    },
+    "ssh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "username"
+      ],
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_target",
+        "status"
+      ],
+      "properties": {
+        "request_target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "ssh_auth_failure"
+        }
+      },
+      "required": [
+        "ssh"
+      ],
+      "not": {
+        "required": [
+          "http"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "http_request"
+        }
+      },
+      "required": [
+        "http"
+      ],
+      "not": {
+        "required": [
+          "ssh"
+        ]
+      }
+    }
+  ]
+}

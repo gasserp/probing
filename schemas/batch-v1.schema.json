@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gasserp/probing/schemas/batch-v1.schema.json",
+  "title": "Probing signed immutable batch v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "payload": {
+      "$ref": "#/$defs/payload"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "key_id",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "ipAddress": {
+      "type": "string",
+      "anyOf": [
+        {
+          "format": "ipv4"
+        },
+        {
+          "format": "ipv6"
+        }
+      ]
+    },
+    "hourlyBucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hour",
+        "count"
+      ],
+      "properties": {
+        "hour": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_ip",
+        "count",
+        "first_observed_at",
+        "last_observed_at",
+        "hourly_buckets",
+        "rule_ids"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "ssh_auth_failure",
+            "http_request"
+          ]
+        },
+        "source_ip": {
+          "$ref": "#/$defs/ipAddress"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "first_observed_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "last_observed_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "hourly_buckets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 744,
+          "items": {
+            "$ref": "#/$defs/hourlyBucket"
+          }
+        },
+        "rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9](?:[a-z0-9._/-]{0,126}[a-z0-9])?$"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "ssh_auth_failure"
+            }
+          },
+          "required": [
+            "username"
+          ],
+          "not": {
+            "required": [
+              "path"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "http_request"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "not": {
+            "required": [
+              "username"
+            ]
+          }
+        }
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source_id",
+        "source_epoch",
+        "sequence",
+        "created_at",
+        "observation_window",
+        "classifier_version",
+        "records"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "probing.batch/v1"
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "source_epoch": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f-]+$"
+        },
+        "sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "previous_batch_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "created_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "observation_window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "$ref": "#/$defs/utcTimestamp"
+            },
+            "end": {
+              "$ref": "#/$defs/utcTimestamp"
+            }
+          }
+        },
+        "classifier_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "records": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/record"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "sequence": {
+                  "const": "0"
+                }
+              },
+              "required": [
+                "sequence"
+              ]
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "previous_batch_hash"
+                ]
+              }
+            },
+            "else": {
+              "required": [
+                "previous_batch_hash"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
