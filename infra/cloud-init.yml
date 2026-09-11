@@ -8,12 +8,32 @@ packages:
   - docker.io
   - docker-compose-v2
   - git
+  - openssl
 
 runcmd:
-  - install -d -o 65532 -g 65532 -m 0750 /var/lib/probing
+  - install -d -o 65532 -g 65532 -m 0750 /var/lib/probing /var/lib/probing/outbox
   - systemctl enable --now docker
   - |
     set -eu
+    if [ ! -f /var/lib/probing/source-private-key.pem ]; then
+      umask 077
+      openssl genpkey -algorithm Ed25519 -out /var/lib/probing/source-private-key.pem.tmp
+      chown 65532:65532 /var/lib/probing/source-private-key.pem.tmp
+      chmod 0600 /var/lib/probing/source-private-key.pem.tmp
+      mv /var/lib/probing/source-private-key.pem.tmp /var/lib/probing/source-private-key.pem
+    fi
+    if [ ! -f /var/lib/probing/source-epoch ]; then
+      umask 077
+      tr '[:upper:]' '[:lower:]' < /proc/sys/kernel/random/uuid > /var/lib/probing/source-epoch.tmp
+      chown 65532:65532 /var/lib/probing/source-epoch.tmp
+      chmod 0600 /var/lib/probing/source-epoch.tmp
+      mv /var/lib/probing/source-epoch.tmp /var/lib/probing/source-epoch
+    fi
+    openssl pkey -in /var/lib/probing/source-private-key.pem -pubout \
+      -out /var/lib/probing/source-public-key.pem.tmp
+    chown root:root /var/lib/probing/source-public-key.pem.tmp
+    chmod 0644 /var/lib/probing/source-public-key.pem.tmp
+    mv /var/lib/probing/source-public-key.pem.tmp /var/lib/probing/source-public-key.pem
     fallocate -l 2G /swapfile
     chmod 0600 /swapfile
     mkswap /swapfile
@@ -21,11 +41,16 @@ runcmd:
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
     git clone --depth 1 https://github.com/gasserp/probing.git /opt/probing
     cd /opt/probing
-    docker compose -f deploy/docker-compose.yml build collector
+    cat > deploy/.env <<'EOF'
+    PROBING_STORAGE_ACCOUNT=__STORAGE_ACCOUNT_NAME__
+    PROBING_STORAGE_CONTAINER=__STORAGE_CONTAINER_NAME__
+    EOF
+    chmod 0644 deploy/.env
+    docker compose -f deploy/docker-compose.yml build collector uploader
     docker compose -f deploy/docker-compose.yml pull --ignore-buildable
     docker compose -f deploy/docker-compose.yml up -d --no-build
     sleep 15
-    for service in collector ingress nginx cowrie; do
+    for service in collector uploader ingress nginx cowrie; do
       if ! docker compose -f deploy/docker-compose.yml ps --services --status running | grep -qx "$service"; then
         exit 1
       fi
