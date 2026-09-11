@@ -21,6 +21,7 @@ type config struct {
 	Adapters     []core.AdapterCommand `json:"adapters"`
 	SSH          sshConfig             `json:"ssh"`
 	HTTP         httpConfig            `json:"http"`
+	Publication  *publicationConfig    `json:"publication,omitempty"`
 }
 
 type sshConfig struct {
@@ -36,6 +37,15 @@ type httpConfig struct {
 	ExcludedExactPaths    []string `json:"excluded_exact_paths"`
 	ExcludedPathPrefixes  []string `json:"excluded_path_prefixes"`
 	SensitivePathPatterns []string `json:"sensitive_path_patterns"`
+}
+
+type publicationConfig struct {
+	SourceID          string `json:"source_id"`
+	SourceEpochPath   string `json:"source_epoch_path"`
+	PrivateKeyPath    string `json:"private_key_path"`
+	KeyID             string `json:"key_id"`
+	ClassifierVersion string `json:"classifier_version"`
+	OutboxDirectory   string `json:"outbox_directory"`
 }
 
 func loadConfig(path string) (config, error) {
@@ -64,13 +74,27 @@ func loadConfig(path string) (config, error) {
 	}
 	seen := make(map[string]struct{}, len(loaded.Adapters))
 	for _, adapter := range loaded.Adapters {
-		if adapter.ID == "" || adapter.Command == "" {
-			return config{}, errors.New("every adapter requires id and command")
+		if adapter.ID == "" || adapter.SocketPath == "" {
+			return config{}, errors.New("every adapter requires id and socket_path")
 		}
 		if _, duplicate := seen[adapter.ID]; duplicate {
 			return config{}, fmt.Errorf("duplicate adapter ID %q", adapter.ID)
 		}
 		seen[adapter.ID] = struct{}{}
+	}
+	if loaded.Publication != nil {
+		publication := loaded.Publication
+		if publication.SourceID == "" ||
+			publication.SourceEpochPath == "" ||
+			publication.PrivateKeyPath == "" ||
+			publication.KeyID == "" ||
+			publication.ClassifierVersion == "" ||
+			publication.OutboxDirectory == "" {
+			return config{}, errors.New("publication requires source identity, key, classifier, and outbox paths")
+		}
+		if len(publication.ClassifierVersion) > 128 {
+			return config{}, errors.New("publication.classifier_version exceeds 128 bytes")
+		}
 	}
 	return loaded, nil
 }

@@ -48,3 +48,9 @@ module collector 'modules/collector.bicep' = {
 
 output publicIPv6 string = collector.outputs.publicIPv6
 output publicIPv4 string = collector.outputs.publicIPv4
+output storageAccountName string = collector.outputs.storageAccountName
+output storageContainerName string = collector.outputs.storageContainerName
+output githubClientId string = collector.outputs.githubClientId
+output githubTenantId string = tenant().tenantId
+output githubSubscriptionId string = subscription().subscriptionId
+output resourceGroupName string = resourceGroup.name

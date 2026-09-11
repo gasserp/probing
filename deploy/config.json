@@ -3,13 +3,11 @@
   "adapters": [
     {
       "id": "nginx",
-      "command": "/usr/local/bin/probing-file-adapter",
-      "args": ["--format", "nginx", "--file", "/logs/nginx/access.jsonl"]
+      "socket_path": "/ipc/nginx/adapter.sock"
     },
     {
       "id": "cowrie",
-      "command": "/usr/local/bin/probing-file-adapter",
-      "args": ["--format", "cowrie", "--file", "/logs/cowrie/log/cowrie/cowrie.json"]
+      "socket_path": "/ipc/cowrie/adapter.sock"
     }
   ],
   "ssh": {
@@ -23,5 +21,13 @@
     "eligible_statuses": [400, 403, 404],
     "excluded_exact_paths": ["/health"],
     "excluded_path_prefixes": []
+  },
+  "publication": {
+    "source_id": "gasserp-azure-weu-01",
+    "source_epoch_path": "/data/source-epoch",
+    "private_key_path": "/data/source-private-key.pem",
+    "key_id": "gasserp-azure-weu-01-ed25519-1",
+    "classifier_version": "probing-classifier-v1",
+    "outbox_directory": "/outbox"
   }
 }

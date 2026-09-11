@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Probing telemetry</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Public telemetry</p>
+      <h1>Self-reported suspected probes</h1>
+      <p class="notice">
+        These records are assertions from registered collectors. They are not
+        proof of intent, ownership, compromise, or abuse.
+      </p>
+      <div class="status">
+        <span id="freshness" class="badge">Loading data</span>
+        <span id="updated"></span>
+      </div>
+    </header>
+    <main>
+      <section class="summary" aria-label="Summary">
+        <article>
+          <h2>Total accepted observations</h2>
+          <p id="total" class="metric">-</p>
+        </article>
+        <article>
+          <h2>Registered source epochs reporting</h2>
+          <p id="source-count" class="metric">-</p>
+        </article>
+      </section>
+      <section>
+        <h2>Hourly observations</h2>
+        <p class="subtle">Latest 168 UTC hours in the accepted rollups.</p>
+        <div id="chart" class="chart" role="img" aria-label="Hourly observation counts"></div>
+      </section>
+      <section class="tables">
+        <article>
+          <h2>Top attempted usernames</h2>
+          <ol id="usernames"></ol>
+        </article>
+        <article>
+          <h2>Top eligible HTTP paths</h2>
+          <ol id="paths"></ol>
+        </article>
+        <article>
+          <h2>Top source IPs</h2>
+          <ol id="source-ips"></ol>
+        </article>
+      </section>
+      <section>
+        <h2>Source provenance</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Source ID</th><th>Epoch</th><th>Accepted count</th></tr>
+            </thead>
+            <tbody id="sources"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <footer>
+      Exact public source IPs, attempted usernames, and eligible paths are
+      intentionally published for accepted promoted observations.
+    </footer>
+  </body>
+</html>

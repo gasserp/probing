@@ -81,8 +81,11 @@ hashes the discarded query or fragment.
 A batch identity is `(source_id, source_epoch, sequence)`. Sequence is a
 canonical unsigned decimal string scoped to the epoch. Sequence zero has no
 predecessor; every later batch names the previous accepted payload hash.
-Retries must publish byte-identical content. Conflicting content at an accepted
-identity is rejected.
+Retries must publish byte-identical content. The deterministic Azure blob name
+is
+`source_id/source_epoch/<sequence-digit-count>-<sequence>/<payload-hash>.json`.
+The length prefix preserves lexical sequence order without weakening canonical
+decimal validation. Conflicting content at an accepted identity is rejected.
 
 Payloads are canonicalized with RFC 8785. Ed25519 signs:
 
@@ -105,14 +108,14 @@ authoritative for accepted identity/hash pairs.
 
 ## Git volume policy
 
-The central repository stores only the acceptance ledger and compact derived
-rollups. Exact immutable batches remain in each source repository. The initial
-publishing milestone will set per-source daily and annual byte budgets before
-enabling public pushes. Acceptance stops visibly at a budget boundary; data is
-never silently truncated. A source must rotate to a reviewed annual repository
-or configured object-store archive before exceeding its repository ceiling.
-Pending-batch retrieval is one batch at a time, and the local store refuses to
-create more than 128 unpublished batches.
+The central repository stores only the compact acceptance ledger and derived
+rollups. Exact immutable envelopes remain in Azure Blob for 30 days, then the
+lifecycle policy deletes them. GitHub ingestion deletes accepted or
+byte-identical replay blobs only after the resulting data-repository commit.
+Invalid blobs remain for investigation until retention applies. Acceptance is
+bounded to 256 files, 64 MiB, 64 registered sources, 100,000 accepted batches,
+and two minutes per invocation. Pending-batch retrieval is one batch at a time,
+and the local store refuses to create more than 128 unpublished batches.
 
 ## Registration and recovery
 

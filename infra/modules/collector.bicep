@@ -8,7 +8,14 @@ param includeCloudInit bool
 @secure()
 param adminSshPublicKey string
 
-var cloudInit = loadTextContent('../cloud-init.yml')
+var rawCloudInit = loadTextContent('../cloud-init.yml')
+var storageAccountName = take('probing${uniqueString(subscription().id, resourceGroup().id, location)}', 24)
+var storageContainerName = 'pending-batches'
+var cloudInit = replace(
+  replace(rawCloudInit, '__STORAGE_ACCOUNT_NAME__', storageAccountName),
+  '__STORAGE_CONTAINER_NAME__',
+  storageContainerName
+)
 
 resource networkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: '${vmName}-nsg'
@@ -68,6 +75,100 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
     ]
     networkSecurityGroup: {
       id: networkSecurityGroup.id
+    }
+    serviceEndpoints: [
+      {
+        service: 'Microsoft.Storage'
+        locations: [
+          location
+        ]
+      }
+    ]
+  }
+}
+
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: storageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    accessTier: 'Hot'
+    allowBlobPublicAccess: false
+    allowCrossTenantReplication: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    publicNetworkAccess: 'Enabled'
+    supportsHttpsTrafficOnly: true
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Allow'
+      ipRules: []
+      virtualNetworkRules: [
+        {
+          action: 'Allow'
+          id: subnet.id
+        }
+      ]
+    }
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+  properties: {
+    containerDeleteRetentionPolicy: {
+      enabled: true
+      days: 7
+    }
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 7
+    }
+  }
+}
+
+resource batchContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: storageContainerName
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+resource lifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+  properties: {
+    policy: {
+      rules: [
+        {
+          enabled: true
+          name: 'delete-ingested-batches-after-30-days'
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: {
+                delete: {
+                  daysAfterModificationGreaterThan: 30
+                }
+              }
+            }
+            filters: {
+              blobTypes: [
+                'blockBlob'
+              ]
+              prefixMatch: [
+                '${storageContainerName}/'
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
@@ -192,6 +293,48 @@ resource virtualMachine 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   }
 }
 
+resource githubDataIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${vmName}-github-data'
+  location: location
+}
+
+resource githubFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+  parent: githubDataIdentity
+  name: 'probing-data-main'
+  properties: {
+    audiences: [
+      'api://AzureADTokenExchange'
+    ]
+    issuer: 'https://token.actions.githubusercontent.com'
+    subject: 'repo:gasserp/probing-data:ref:refs/heads/main'
+  }
+}
+
+var storageBlobDataContributorRole = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+)
+
+resource virtualMachineBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: batchContainer
+  name: guid(batchContainer.id, virtualMachine.id, 'storage-blob-data-contributor')
+  properties: {
+    principalId: virtualMachine.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageBlobDataContributorRole
+  }
+}
+
+resource githubBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: batchContainer
+  name: guid(batchContainer.id, githubDataIdentity.id, 'storage-blob-data-contributor')
+  properties: {
+    principalId: githubDataIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageBlobDataContributorRole
+  }
+}
+
 resource spotRestarter 'Microsoft.Logic/workflows@2019-05-01' = if (isSpot) {
   name: '${vmName}-spot-restarter'
   location: location
@@ -251,3 +394,6 @@ resource spotRestarterRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 
 output publicIPv6 string = publicIPv6.properties.ipAddress
 output publicIPv4 string = dualStack ? publicIPv4.properties.ipAddress : ''
+output storageAccountName string = storageAccount.name
+output storageContainerName string = batchContainer.name
+output githubClientId string = githubDataIdentity.properties.clientId

@@ -34,6 +34,14 @@ classifier state might diverge.
     "eligible_statuses": [400, 403, 404],
     "excluded_exact_paths": ["/health"],
     "excluded_path_prefixes": ["/downloads/"]
+  },
+  "publication": {
+    "source_id": "gasserp-azure-weu-01",
+    "source_epoch_path": "/var/lib/probing/source-epoch",
+    "private_key_path": "/var/lib/probing/source-private-key.pem",
+    "key_id": "gasserp-azure-weu-01-ed25519-1",
+    "classifier_version": "probing-classifier-v1",
+    "outbox_directory": "/var/lib/probing/outbox"
   }
 }
 ```
@@ -47,3 +55,15 @@ go run ./cmd/probing-agent -config /etc/probing/config.json
 Adapter commands are trusted local configuration and are executed directly,
 never through a shell. Diagnostics are quoted and line-bounded before logging.
 The daemon handles `SIGINT` and `SIGTERM`.
+
+Publication is optional outside the reference deployment. When configured, the
+agent runs an hourly UTC batch pump. At hour `H`, only observations older than
+`H - ssh.window_seconds` are eligible. The pump writes the exact signed
+envelope bytes by temporary-file, `fsync`, and rename, and never modifies them
+on retry. It accepts only a canonical, bounded receipt matching the source,
+epoch, sequence, payload hash, envelope hash, and deterministic blob name.
+
+The PKCS#8 Ed25519 private-key file must be a regular file with mode `0600`.
+Neither the key nor the SQLite database belongs on a networked mount. A receipt
+is only an upload acknowledgement; the local database remains authoritative
+until it durably records the receipt digest.

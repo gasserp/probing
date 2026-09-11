@@ -55,5 +55,27 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	return supervisor.Run(ctx, configuration.Adapters)
+	if configuration.Publication == nil {
+		return supervisor.Run(ctx, configuration.Adapters)
+	}
+	publisher, err := newBatchPublisher(state, *configuration.Publication, restoreWindow)
+	if err != nil {
+		return err
+	}
+	runContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan error, 2)
+	go func() {
+		results <- supervisor.Run(runContext, configuration.Adapters)
+	}()
+	go func() {
+		results <- publisher.Run(runContext)
+	}()
+	first := <-results
+	cancel()
+	second := <-results
+	if first != nil {
+		return first
+	}
+	return second
 }
