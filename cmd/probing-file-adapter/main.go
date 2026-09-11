@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,13 +49,24 @@ func main() {
 func selectParser(format string) (fileadapter.Parser, error) {
 	switch format {
 	case "nginx":
-		return func(line []byte, cursor string) (protocol.Observation, bool, error) {
+		return recoverInvalidRecords(format, func(line []byte, cursor string) (protocol.Observation, bool, error) {
 			observation, err := nginx.Parse(line, cursor)
 			return observation, err == nil, err
-		}, nil
+		}, os.Stderr), nil
 	case "cowrie":
-		return cowrie.Parse, nil
+		return recoverInvalidRecords(format, cowrie.Parse, os.Stderr), nil
 	default:
 		return nil, fmt.Errorf("unsupported format %q", format)
+	}
+}
+
+func recoverInvalidRecords(format string, parser fileadapter.Parser, diagnostics io.Writer) fileadapter.Parser {
+	return func(line []byte, cursor string) (protocol.Observation, bool, error) {
+		observation, matched, err := parser(line, cursor)
+		if err == nil {
+			return observation, matched, nil
+		}
+		fmt.Fprintf(diagnostics, "ignored invalid %s record: %q\n", format, err.Error())
+		return protocol.Observation{}, false, nil
 	}
 }
