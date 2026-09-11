@@ -3,13 +3,11 @@
   "adapters": [
     {
       "id": "nginx",
-      "command": "/usr/local/bin/probing-file-adapter",
-      "args": ["--format", "nginx", "--file", "/logs/nginx/access.jsonl"]
+      "socket_path": "/ipc/nginx/adapter.sock"
     },
     {
       "id": "cowrie",
-      "command": "/usr/local/bin/probing-file-adapter",
-      "args": ["--format", "cowrie", "--file", "/logs/cowrie/log/cowrie/cowrie.json"]
+      "socket_path": "/ipc/cowrie/adapter.sock"
     }
   ],
   "ssh": {

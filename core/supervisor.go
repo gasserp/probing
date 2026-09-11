@@ -1,26 +1,28 @@
 package core
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log"
-	"os"
-	"os/exec"
+	"net"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gasserp/probing/adapter"
 )
 
-const MaxDiagnosticLineBytes = 8 * 1024
+const (
+	MaxAdapterSocketPathBytes = 4_096
+	adapterConnectRetry       = time.Second
+)
 
 type AdapterCommand struct {
-	ID      string   `json:"id"`
-	Command string   `json:"command"`
-	Args    []string `json:"args,omitempty"`
+	ID         string `json:"id"`
+	SocketPath string `json:"socket_path"`
 }
 
 type Supervisor struct {
@@ -67,43 +69,26 @@ func (s *Supervisor) Run(ctx context.Context, commands []AdapterCommand) error {
 }
 
 func (s *Supervisor) runAdapter(ctx context.Context, config AdapterCommand) error {
-	if config.ID == "" || config.Command == "" {
-		return errors.New("adapter ID and command are required")
+	if config.ID == "" || !validSocketPath(config.SocketPath) {
+		return errors.New("adapter ID and absolute socket_path are required")
 	}
-	command := exec.CommandContext(ctx, config.Command, config.Args...)
-	command.Env = []string{
-		"PATH=/usr/local/bin:/usr/bin:/bin",
-		"LANG=C.UTF-8",
-		"LC_ALL=C.UTF-8",
-		"TZ=UTC",
-	}
-	command.WaitDelay = 5 * time.Second
-	configureAdapterCommand(command)
-	stdout, err := command.StdoutPipe()
+
+	connection, err := dialAdapter(ctx, config.SocketPath)
 	if err != nil {
-		return fmt.Errorf("open %s stdout: %w", config.ID, err)
+		return fmt.Errorf("connect adapter %s: %w", config.ID, err)
 	}
-	stdin, err := command.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("open %s stdin: %w", config.ID, err)
-	}
-	stderr, err := command.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("open %s stderr: %w", config.ID, err)
-	}
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("start adapter %s: %w", config.ID, err)
-	}
-	defer func() {
-		_ = stdin.Close()
-		if command.ProcessState == nil {
-			_ = terminateAdapterProcess(command)
-			_ = command.Wait()
+	defer connection.Close()
+	closed := make(chan struct{})
+	defer close(closed)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = connection.Close()
+		case <-closed:
 		}
 	}()
-	go logDiagnostics(config.ID, stderr)
 
-	decoder := adapter.NewDecoder(stdout, adapter.DefaultMaxFrameBytes)
+	decoder := adapter.NewDecoder(connection, adapter.DefaultMaxFrameBytes)
 	hello, err := decoder.Next()
 	if err != nil {
 		return fmt.Errorf("negotiate adapter %s: %w", config.ID, err)
@@ -118,7 +103,7 @@ func (s *Supervisor) runAdapter(ctx context.Context, config AdapterCommand) erro
 	if !found {
 		cursor = ""
 	}
-	if err := adapter.Encode(stdin, adapter.Frame{
+	if err := adapter.Encode(connection, adapter.Frame{
 		Type:   adapter.FrameResume,
 		Resume: &adapter.Resume{Cursor: cursor},
 	}); err != nil {
@@ -128,10 +113,10 @@ func (s *Supervisor) runAdapter(ctx context.Context, config AdapterCommand) erro
 	for {
 		frame, err := decoder.Next()
 		if errors.Is(err, io.EOF) {
-			if waitErr := command.Wait(); waitErr != nil {
-				return fmt.Errorf("adapter %s exited: %w", config.ID, waitErr)
+			if ctx.Err() != nil {
+				return nil
 			}
-			return nil
+			return fmt.Errorf("adapter %s disconnected", config.ID)
 		}
 		if err != nil {
 			return fmt.Errorf("read adapter %s: %w", config.ID, err)
@@ -155,7 +140,7 @@ func (s *Supervisor) runAdapter(ctx context.Context, config AdapterCommand) erro
 		default:
 			return fmt.Errorf("adapter %s sent invalid frame type %q", config.ID, frame.Type)
 		}
-		if err := adapter.Encode(stdin, adapter.Frame{
+		if err := adapter.Encode(connection, adapter.Frame{
 			Type: adapter.FrameAck,
 			Ack:  &adapter.Ack{EventID: eventID, Cursor: committedCursor},
 		}); err != nil {
@@ -164,28 +149,32 @@ func (s *Supervisor) runAdapter(ctx context.Context, config AdapterCommand) erro
 	}
 }
 
-func logDiagnostics(adapterID string, reader io.Reader) {
-	buffered := bufio.NewReaderSize(reader, MaxDiagnosticLineBytes)
+func dialAdapter(ctx context.Context, socketPath string) (net.Conn, error) {
+	dialer := net.Dialer{}
 	for {
-		line, prefix, err := buffered.ReadLine()
-		if len(line) > 0 {
-			if prefix {
-				log.Printf("adapter %s: %q [truncated]", adapterID, line)
-			} else {
-				log.Printf("adapter %s: %q", adapterID, line)
-			}
+		connection, err := dialer.DialContext(ctx, "unix", socketPath)
+		if err == nil {
+			return connection, nil
 		}
-		for prefix {
-			_, prefix, err = buffered.ReadLine()
-			if err != nil {
-				break
-			}
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
-				log.Printf("adapter %s diagnostics stopped: %q", adapterID, err.Error())
-			}
-			return
+		timer := time.NewTimer(adapterConnectRetry)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
+}
+
+func validSocketPath(path string) bool {
+	if path == "" || len(path) > MaxAdapterSocketPathBytes || !utf8.ValidString(path) ||
+		!filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return false
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return !strings.Contains(path, "\x00")
 }

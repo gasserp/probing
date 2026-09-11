@@ -34,3 +34,10 @@ jobs:
           push: true
           tags: ghcr.io/gasserp/probing:uploader-main
           platforms: linux/amd64,linux/arm64
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: probing-file-adapter
+          push: true
+          tags: ghcr.io/gasserp/probing:adapter-main
+          platforms: linux/amd64,linux/arm64

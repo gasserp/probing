@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -130,6 +132,7 @@ func TestRunQuarantinesUnregisteredSignatureWithoutCopyingContent(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_, wrongKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -160,6 +163,82 @@ func TestRunQuarantinesUnregisteredSignatureWithoutCopyingContent(t *testing.T) 
 	readJSON(t, filepath.Join(repository, "data", "quarantine.json"), &quarantine)
 	if len(quarantine.Entries) != 1 || quarantine.Entries[0].Reason != "invalid_signature" {
 		t.Fatalf("unexpected quarantine metadata: %#v", quarantine)
+	}
+}
+
+func TestAcceptanceLimitsDoNotPoisonLedger(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := signedBatch(t, privateKey)
+	envelope, err := publication.ValidateEnvelope(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := candidate{
+		relative: envelope.BlobName,
+		data:     data,
+		envelope: envelope,
+	}
+	fullIPs := make(map[string]uint64, MaxPeriodDimensionValues)
+	for i := range MaxPeriodDimensionValues {
+		fullIPs[fmt.Sprintf("2001:db8::%x", i+0x10000)] = 1
+	}
+	ledger := Ledger{
+		SchemaVersion: LedgerSchemaVersion,
+		Repository:    "gasserp/probing-data",
+		Sources:       []LedgerSource{},
+		Periods: map[string]PeriodLedger{
+			"hourly\x002026-09-10T19:00:00Z": {
+				Total:     uint64(MaxPeriodDimensionValues),
+				Sources:   map[string]uint64{},
+				SourceIPs: fullIPs,
+				Usernames: map[string]uint64{},
+				Paths:     map[string]uint64{},
+			},
+		},
+	}
+	before := cloneLedger(ledger)
+	quarantine := Quarantine{SchemaVersion: QuarantineSchemaVersion, Entries: []QuarantineEntry{}}
+	result, err := acceptCandidates(context.Background(), &ledger, []candidate{item}, &quarantine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Accepted != 0 || len(quarantine.Entries) != 1 ||
+		quarantine.Entries[0].Reason != "aggregation_limit" {
+		t.Fatalf("cardinality exhaustion result = %#v, quarantine = %#v", result, quarantine)
+	}
+	if !reflect.DeepEqual(ledger, before) {
+		t.Fatal("cardinality exhaustion partially mutated the acceptance ledger")
+	}
+	root := t.TempDir()
+	ledgerPath := filepath.Join(root, "data", "acceptance-ledger.json")
+	if err := writeOutputs(root, ledgerPath, ledger, quarantine); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > MaxLedgerBytes {
+		t.Fatalf("written ledger size = %d, limit = %d", info.Size(), MaxLedgerBytes)
+	}
+	if _, err := loadLedger(ledgerPath, "gasserp/probing-data"); err != nil {
+		t.Fatalf("written ledger cannot be loaded: %v", err)
+	}
+
+	empty := Ledger{
+		SchemaVersion: LedgerSchemaVersion,
+		Repository:    "gasserp/probing-data",
+		Sources:       []LedgerSource{},
+		Periods:       map[string]PeriodLedger{},
+	}
+	if _, reason, err := acceptNewCandidate(empty, item, 1); err != nil || reason != "ledger_limit" {
+		t.Fatalf("serialized ledger exhaustion = reason %q, error %v", reason, err)
+	}
+	if len(empty.Sources) != 0 || len(empty.Periods) != 0 {
+		t.Fatal("serialized ledger exhaustion mutated the original ledger")
 	}
 }
 

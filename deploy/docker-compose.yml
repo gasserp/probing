@@ -36,8 +36,61 @@ services:
       - ./config.json:/etc/probing/config.json:ro
       - /var/lib/probing:/data
       - /var/lib/probing/outbox:/outbox
-      - nginx-logs:/logs/nginx:ro
-      - cowrie-var:/logs/cowrie:ro
+      - /var/lib/probing/ipc/nginx:/ipc/nginx:ro
+      - /var/lib/probing/ipc/cowrie:/ipc/cowrie:ro
+    depends_on:
+      - nginx-adapter
+      - cowrie-adapter
+
+  nginx-adapter:
+    image: ${PROBING_ADAPTER_IMAGE:-ghcr.io/gasserp/probing:adapter-main}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: probing-file-adapter
+    restart: unless-stopped
+    command:
+      - "-format"
+      - "nginx"
+      - "-file"
+      - "/logs/access.jsonl"
+      - "-socket"
+      - "/ipc/adapter.sock"
+    user: "65533:65532"
+    read_only: true
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - nginx-logs:/logs:ro
+      - /var/lib/probing/ipc/nginx:/ipc
+
+  cowrie-adapter:
+    image: ${PROBING_ADAPTER_IMAGE:-ghcr.io/gasserp/probing:adapter-main}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: probing-file-adapter
+    restart: unless-stopped
+    command:
+      - "-format"
+      - "cowrie"
+      - "-file"
+      - "/logs/log/cowrie/cowrie.json"
+      - "-socket"
+      - "/ipc/adapter.sock"
+    user: "65534:65532"
+    read_only: true
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - cowrie-var:/logs:ro
+      - /var/lib/probing/ipc/cowrie:/ipc
 
   uploader:
     image: ${PROBING_UPLOADER_IMAGE:-ghcr.io/gasserp/probing:uploader-main}

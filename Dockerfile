@@ -11,7 +11,10 @@ FROM gcr.io/distroless/static-debian12:nonroot AS probing-uploader
 COPY --from=build /out/probing-uploader /usr/local/bin/probing-uploader
 ENTRYPOINT ["/usr/local/bin/probing-uploader"]
 
+FROM gcr.io/distroless/static-debian12:nonroot AS probing-file-adapter
+COPY --from=build /out/probing-file-adapter /usr/local/bin/probing-file-adapter
+ENTRYPOINT ["/usr/local/bin/probing-file-adapter"]
+
 FROM gcr.io/distroless/static-debian12:nonroot AS probing-collector
 COPY --from=build /out/probing-agent /usr/local/bin/probing-agent
-COPY --from=build /out/probing-file-adapter /usr/local/bin/probing-file-adapter
 ENTRYPOINT ["/usr/local/bin/probing-agent"]

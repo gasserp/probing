@@ -9,7 +9,7 @@ import (
 func TestLoadConfigAndBuildClassifiers(t *testing.T) {
 	path := writeConfig(t, `{
 		"database_path":"state.db",
-		"adapters":[{"id":"nginx","command":"/usr/local/bin/probing-nginx","args":["--file","/var/log/nginx/probing.log"]}],
+		"adapters":[{"id":"nginx","socket_path":"/ipc/nginx/adapter.sock"}],
 		"ssh":{
 			"window_seconds":900,
 			"pair_threshold":6,
@@ -39,7 +39,7 @@ func TestLoadConfigAndBuildClassifiers(t *testing.T) {
 func TestLoadConfigRejectsUnknownAndDuplicateAdapters(t *testing.T) {
 	unknown := writeConfig(t, `{
 		"database_path":"state.db",
-		"adapters":[{"id":"one","command":"adapter"}],
+		"adapters":[{"id":"one","socket_path":"/ipc/one.sock"}],
 		"unexpected":true
 	}`)
 	if _, err := loadConfig(unknown); err == nil {
@@ -49,8 +49,8 @@ func TestLoadConfigRejectsUnknownAndDuplicateAdapters(t *testing.T) {
 	duplicate := writeConfig(t, `{
 		"database_path":"state.db",
 		"adapters":[
-			{"id":"one","command":"adapter"},
-			{"id":"one","command":"adapter"}
+			{"id":"one","socket_path":"/ipc/one.sock"},
+			{"id":"one","socket_path":"/ipc/two.sock"}
 		]
 	}`)
 	if _, err := loadConfig(duplicate); err == nil {
@@ -59,7 +59,7 @@ func TestLoadConfigRejectsUnknownAndDuplicateAdapters(t *testing.T) {
 
 	invalidThreshold := writeConfig(t, `{
 		"database_path":"state.db",
-		"adapters":[{"id":"one","command":"adapter"}],
+		"adapters":[{"id":"one","socket_path":"/ipc/one.sock"}],
 		"ssh":{"pair_threshold":-1}
 	}`)
 	configuration, err := loadConfig(invalidThreshold)

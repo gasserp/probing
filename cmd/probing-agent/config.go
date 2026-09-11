@@ -74,8 +74,8 @@ func loadConfig(path string) (config, error) {
 	}
 	seen := make(map[string]struct{}, len(loaded.Adapters))
 	for _, adapter := range loaded.Adapters {
-		if adapter.ID == "" || adapter.Command == "" {
-			return config{}, errors.New("every adapter requires id and command")
+		if adapter.ID == "" || adapter.SocketPath == "" {
+			return config{}, errors.New("every adapter requires id and socket_path")
 		}
 		if _, duplicate := seen[adapter.ID]; duplicate {
 			return config{}, fmt.Errorf("duplicate adapter ID %q", adapter.ID)

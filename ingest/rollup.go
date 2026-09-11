@@ -10,7 +10,12 @@ import (
 	"github.com/gasserp/probing/protocol"
 )
 
-const MaxPublicDimensionValues = 100
+const (
+	MaxPublicDimensionValues = 100
+	MaxPeriodDimensionValues = 10_000
+)
+
+var ErrPeriodCardinality = errors.New("period dimension cardinality limit reached")
 
 func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
 	for _, record := range payload.Records {
@@ -166,7 +171,10 @@ func topSources(values map[string]uint64) []SourceTotal {
 }
 
 func addMapCount(values map[string]uint64, key string, amount uint64) error {
-	current := values[key]
+	current, exists := values[key]
+	if !exists && len(values) >= MaxPeriodDimensionValues {
+		return ErrPeriodCardinality
+	}
 	if err := addCount(&current, amount); err != nil {
 		return err
 	}

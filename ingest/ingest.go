@@ -299,67 +299,34 @@ func acceptCandidates(
 	quarantine *Quarantine,
 ) (Result, error) {
 	result := Result{DeleteBlobs: []string{}}
-	sourceIndexes := make(map[string]int, len(ledger.Sources))
-	for i := range ledger.Sources {
-		source := ledger.Sources[i]
-		sourceIndexes[source.SourceID+"\x00"+source.SourceEpoch] = i
-	}
 	for _, item := range candidates {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
 		payload := item.envelope.Batch.Payload
-		sourceKey := payload.SourceID + "\x00" + payload.SourceEpoch
-		index, exists := sourceIndexes[sourceKey]
-		if !exists {
-			ledger.Sources = append(ledger.Sources, LedgerSource{
-				SourceID:     payload.SourceID,
-				SourceEpoch:  payload.SourceEpoch,
-				NextSequence: "0",
-				Batches:      []LedgerBatch{},
-			})
-			index = len(ledger.Sources) - 1
-			sourceIndexes[sourceKey] = index
-		}
-		source := &ledger.Sources[index]
-		if accepted, found := findAccepted(source.Batches, payload.Sequence); found {
-			if accepted.PayloadHash != item.envelope.PayloadHash ||
-				accepted.BlobName != item.envelope.BlobName {
-				addQuarantine(quarantine, item.relative, item.data, int64(len(item.data)), "replay_conflict")
-			} else {
-				result.Replayed++
-				result.DeleteBlobs = append(result.DeleteBlobs, item.envelope.BlobName)
+		index, exists := ledgerSourceIndex(*ledger, payload.SourceID, payload.SourceEpoch)
+		if exists {
+			source := &ledger.Sources[index]
+			if accepted, found := findAccepted(source.Batches, payload.Sequence); found {
+				if accepted.PayloadHash != item.envelope.PayloadHash ||
+					accepted.BlobName != item.envelope.BlobName {
+					addQuarantine(quarantine, item.relative, item.data, int64(len(item.data)), "replay_conflict")
+				} else {
+					result.Replayed++
+					result.DeleteBlobs = append(result.DeleteBlobs, item.envelope.BlobName)
+				}
+				continue
 			}
-			continue
 		}
-		if payload.Sequence != source.NextSequence {
-			addQuarantine(quarantine, item.relative, item.data, int64(len(item.data)), "sequence_gap")
-			continue
-		}
-		if payload.PreviousBatchHash != source.PreviousHash {
-			addQuarantine(quarantine, item.relative, item.data, int64(len(item.data)), "hash_chain_mismatch")
-			continue
-		}
-		if totalAccepted(*ledger) >= MaxAcceptedBatches {
-			return Result{}, fmt.Errorf("acceptance ledger reached the %d-batch limit", MaxAcceptedBatches)
-		}
-		if err := applyPayload(ledger, payload); err != nil {
-			return Result{}, err
-		}
-		source.Batches = append(source.Batches, LedgerBatch{
-			Sequence:    payload.Sequence,
-			PayloadHash: item.envelope.PayloadHash,
-			BlobName:    item.envelope.BlobName,
-		})
-		source.PreviousHash = item.envelope.PayloadHash
-		next, err := incrementSequence(payload.Sequence)
+		trial, reason, err := acceptNewCandidate(*ledger, item, MaxLedgerBytes)
 		if err != nil {
 			return Result{}, err
 		}
-		source.NextSequence = next
-		if newerTimestamp(payload.CreatedAt, ledger.UpdatedAt) {
-			ledger.UpdatedAt = payload.CreatedAt
+		if reason != "" {
+			addQuarantine(quarantine, item.relative, item.data, int64(len(item.data)), reason)
+			continue
 		}
+		*ledger = trial
 		result.Accepted++
 		result.DeleteBlobs = append(result.DeleteBlobs, item.envelope.BlobName)
 	}
@@ -376,7 +343,116 @@ func acceptCandidates(
 	return result, nil
 }
 
+func acceptNewCandidate(ledger Ledger, item candidate, maxLedgerBytes int) (Ledger, string, error) {
+	payload := item.envelope.Batch.Payload
+	index, exists := ledgerSourceIndex(ledger, payload.SourceID, payload.SourceEpoch)
+	nextSequence := "0"
+	previousHash := ""
+	if exists {
+		nextSequence = ledger.Sources[index].NextSequence
+		previousHash = ledger.Sources[index].PreviousHash
+	}
+	if payload.Sequence != nextSequence {
+		return Ledger{}, "sequence_gap", nil
+	}
+	if payload.PreviousBatchHash != previousHash {
+		return Ledger{}, "hash_chain_mismatch", nil
+	}
+	if totalAccepted(ledger) >= MaxAcceptedBatches {
+		return Ledger{}, "", fmt.Errorf("acceptance ledger reached the %d-batch limit", MaxAcceptedBatches)
+	}
+
+	trial := cloneLedger(ledger)
+	if !exists {
+		trial.Sources = append(trial.Sources, LedgerSource{
+			SourceID:     payload.SourceID,
+			SourceEpoch:  payload.SourceEpoch,
+			NextSequence: "0",
+			Batches:      []LedgerBatch{},
+		})
+		index = len(trial.Sources) - 1
+	}
+	if err := applyPayload(&trial, payload); err != nil {
+		if errors.Is(err, ErrPeriodCardinality) {
+			return Ledger{}, "aggregation_limit", nil
+		}
+		return Ledger{}, "", err
+	}
+	source := &trial.Sources[index]
+	source.Batches = append(source.Batches, LedgerBatch{
+		Sequence:    payload.Sequence,
+		PayloadHash: item.envelope.PayloadHash,
+		BlobName:    item.envelope.BlobName,
+	})
+	source.PreviousHash = item.envelope.PayloadHash
+	next, err := incrementSequence(payload.Sequence)
+	if err != nil {
+		return Ledger{}, "", err
+	}
+	source.NextSequence = next
+	if newerTimestamp(payload.CreatedAt, trial.UpdatedAt) {
+		trial.UpdatedAt = payload.CreatedAt
+	}
+	encoded, err := json.Marshal(trial)
+	if err != nil {
+		return Ledger{}, "", fmt.Errorf("encode acceptance ledger candidate: %w", err)
+	}
+	if len(encoded)+1 > maxLedgerBytes {
+		return Ledger{}, "ledger_limit", nil
+	}
+	return trial, "", nil
+}
+
+func ledgerSourceIndex(ledger Ledger, sourceID, sourceEpoch string) (int, bool) {
+	for i := range ledger.Sources {
+		source := ledger.Sources[i]
+		if source.SourceID == sourceID && source.SourceEpoch == sourceEpoch {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func cloneLedger(ledger Ledger) Ledger {
+	clone := Ledger{
+		SchemaVersion: ledger.SchemaVersion,
+		Repository:    ledger.Repository,
+		UpdatedAt:     ledger.UpdatedAt,
+		Sources:       make([]LedgerSource, len(ledger.Sources)),
+		Periods:       make(map[string]PeriodLedger, len(ledger.Periods)),
+	}
+	for i, source := range ledger.Sources {
+		clone.Sources[i] = source
+		clone.Sources[i].Batches = append([]LedgerBatch(nil), source.Batches...)
+	}
+	for key, period := range ledger.Periods {
+		clone.Periods[key] = PeriodLedger{
+			Total:     period.Total,
+			Sources:   cloneCounts(period.Sources),
+			SourceIPs: cloneCounts(period.SourceIPs),
+			Usernames: cloneCounts(period.Usernames),
+			Paths:     cloneCounts(period.Paths),
+		}
+	}
+	return clone
+}
+
+func cloneCounts(values map[string]uint64) map[string]uint64 {
+	clone := make(map[string]uint64, len(values))
+	for key, value := range values {
+		clone[key] = value
+	}
+	return clone
+}
+
 func writeOutputs(root, ledgerPath string, ledger Ledger, quarantine Quarantine) error {
+	ledgerBytes, err := jsonLine(ledger)
+	if err != nil {
+		return fmt.Errorf("encode acceptance ledger: %w", err)
+	}
+	if len(ledgerBytes) > MaxLedgerBytes {
+		return fmt.Errorf("acceptance ledger exceeds the %d-byte limit", MaxLedgerBytes)
+	}
 	dataDirectory := filepath.Join(root, "data")
 	rollupDirectory := filepath.Join(dataDirectory, "rollups")
 	if err := os.MkdirAll(rollupDirectory, 0o755); err != nil {
@@ -398,7 +474,10 @@ func writeOutputs(root, ledgerPath string, ledger Ledger, quarantine Quarantine)
 	if err := atomicJSON(filepath.Join(dataDirectory, "quarantine.json"), quarantine, 0o644); err != nil {
 		return err
 	}
-	return atomicJSON(ledgerPath, ledger, 0o644)
+	if err := publication.AtomicWrite(ledgerPath, ledgerBytes, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Base(ledgerPath), err)
+	}
+	return nil
 }
 
 func decodeStrictFile(path string, limit int, output any) error {
@@ -422,15 +501,22 @@ func decodeStrictFile(path string, limit int, output any) error {
 }
 
 func atomicJSON(path string, value any, mode os.FileMode) error {
-	data, err := json.Marshal(value)
+	data, err := jsonLine(value)
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
 	}
-	data = append(data, '\n')
 	if err := publication.AtomicWrite(path, data, mode); err != nil {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
+}
+
+func jsonLine(value any) ([]byte, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 func readFileBounded(path string, limit int) ([]byte, error) {
