@@ -34,6 +34,17 @@ data/rollups/yearly.json          # generated
 }
 ```
 
+Before a live source key exists, the accepted bootstrap registry is:
+
+```json
+{"schema_version":"probing.registry/v1","repository":"gasserp/probing-data","sources":[]}
+```
+
+An empty registry is valid and causes every downloaded blob to quarantine as
+unregistered. Running `probing-ingest` with this registry and an empty input
+directory creates the canonical empty ledger, quarantine file, four rollup
+files, and accepted manifest.
+
 Convert the generated PEM public key to the required raw base64url value:
 
 ```sh

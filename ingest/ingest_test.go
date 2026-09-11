@@ -77,6 +77,52 @@ func TestRunValidatesChainAndBuildsNonDuplicatedRollups(t *testing.T) {
 	}
 }
 
+func TestRunBootstrapsEmptyRepository(t *testing.T) {
+	repository := t.TempDir()
+	input := t.TempDir()
+	registryPath := filepath.Join(repository, "registry", "sources.json")
+	if err := os.MkdirAll(filepath.Dir(registryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registryPath, []byte(
+		`{"schema_version":"probing.registry/v1","repository":"gasserp/probing-data","sources":[]}`,
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(t.TempDir(), "accepted.json")
+	result, err := Run(context.Background(), Options{
+		RepositoryPath:     repository,
+		InputPath:          input,
+		RepositoryIdentity: "gasserp/probing-data",
+		AcceptedManifest:   manifest,
+		Now:                time.Date(2026, 9, 11, 7, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Accepted != 0 || result.Replayed != 0 || result.Quarantined != 0 {
+		t.Fatalf("unexpected empty bootstrap result: %#v", result)
+	}
+	expected := map[string]string{
+		filepath.Join(repository, "data", "acceptance-ledger.json"):  `{"schema_version":"probing.acceptance-ledger/v1","repository":"gasserp/probing-data","sources":[],"periods":{}}` + "\n",
+		filepath.Join(repository, "data", "quarantine.json"):         `{"schema_version":"probing.quarantine/v1","updated_at":"1970-01-01T00:00:00Z","entries":[]}` + "\n",
+		filepath.Join(repository, "data", "rollups", "hourly.json"):  `{"schema_version":"probing.rollup/v1","label":"self-reported suspected probes","granularity":"hourly","periods":[]}` + "\n",
+		filepath.Join(repository, "data", "rollups", "daily.json"):   `{"schema_version":"probing.rollup/v1","label":"self-reported suspected probes","granularity":"daily","periods":[]}` + "\n",
+		filepath.Join(repository, "data", "rollups", "monthly.json"): `{"schema_version":"probing.rollup/v1","label":"self-reported suspected probes","granularity":"monthly","periods":[]}` + "\n",
+		filepath.Join(repository, "data", "rollups", "yearly.json"):  `{"schema_version":"probing.rollup/v1","label":"self-reported suspected probes","granularity":"yearly","periods":[]}` + "\n",
+		manifest: `{"schema_version":"probing.accepted-manifest/v1","blobs":[]}` + "\n",
+	}
+	for path, want := range expected {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != want {
+			t.Fatalf("%s = %q, want %q", path, data, want)
+		}
+	}
+}
+
 func TestRunQuarantinesUnregisteredSignatureWithoutCopyingContent(t *testing.T) {
 	repository := t.TempDir()
 	input := t.TempDir()

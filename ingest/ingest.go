@@ -126,8 +126,8 @@ func loadRegistry(path, expectedRepository string) (Registry, map[string]registe
 	if registry.SchemaVersion != RegistrySchemaVersion || registry.Repository != expectedRepository {
 		return Registry{}, nil, errors.New("source registry schema or repository identity is invalid")
 	}
-	if len(registry.Sources) == 0 || len(registry.Sources) > MaxRegistered {
-		return Registry{}, nil, fmt.Errorf("source registry must contain between 1 and %d sources", MaxRegistered)
+	if len(registry.Sources) > MaxRegistered {
+		return Registry{}, nil, fmt.Errorf("source registry must contain at most %d sources", MaxRegistered)
 	}
 	registered := make(map[string]registeredSource, len(registry.Sources))
 	for i, source := range registry.Sources {
@@ -298,7 +298,7 @@ func acceptCandidates(
 	candidates []candidate,
 	quarantine *Quarantine,
 ) (Result, error) {
-	var result Result
+	result := Result{DeleteBlobs: []string{}}
 	sourceIndexes := make(map[string]int, len(ledger.Sources))
 	for i := range ledger.Sources {
 		source := ledger.Sources[i]
