@@ -75,6 +75,7 @@ services:
       - ALL
     volumes:
       - ./cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg:ro
+      - ./userdb.txt:/cowrie/cowrie-git/etc/userdb.txt:ro
       - cowrie-etc:/cowrie/cowrie-git/etc
       - cowrie-var:/cowrie/cowrie-git/var
     networks:
