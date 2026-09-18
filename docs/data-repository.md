@@ -102,7 +102,9 @@ Required GitHub repository variables are:
 
 There are no account keys, SAS values, PATs, or other publication secrets.
 GitHub's branch subject is fixed to
-`repo:gasserp/probing-data:ref:refs/heads/main`.
+`repo:gasserp@13432519/probing-data@1365491239:ref:refs/heads/main` — GitHub's
+stable-ID subject format (`owner@owner_id/repo@repo_id`), not the plain
+`owner/repo` form.
 
 ## Acceptance and rollups
 

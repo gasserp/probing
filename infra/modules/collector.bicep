@@ -311,7 +311,7 @@ resource githubFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdenti
       'api://AzureADTokenExchange'
     ]
     issuer: 'https://token.actions.githubusercontent.com'
-    subject: 'repo:gasserp/probing-data:ref:refs/heads/main'
+    subject: 'repo:gasserp@13432519/probing-data@1365491239:ref:refs/heads/main'
   }
 }
 
