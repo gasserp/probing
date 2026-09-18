@@ -5,6 +5,7 @@ param isSpot bool
 param maxSpotPrice string
 param dualStack bool
 param includeCloudInit bool
+param repositoryRef string
 @secure()
 param adminSshPublicKey string
 
@@ -12,9 +13,13 @@ var rawCloudInit = loadTextContent('../cloud-init.yml')
 var storageAccountName = take('probing${uniqueString(subscription().id, resourceGroup().id, location)}', 24)
 var storageContainerName = 'pending-batches'
 var cloudInit = replace(
-  replace(rawCloudInit, '__STORAGE_ACCOUNT_NAME__', storageAccountName),
-  '__STORAGE_CONTAINER_NAME__',
-  storageContainerName
+  replace(
+    replace(rawCloudInit, '__STORAGE_ACCOUNT_NAME__', storageAccountName),
+    '__STORAGE_CONTAINER_NAME__',
+    storageContainerName
+  ),
+  '__PROBING_REPOSITORY_REF__',
+  repositoryRef
 )
 
 resource networkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {

@@ -17,9 +17,9 @@ never ingestion or publication time.
 
 ## Adapter transport
 
-The subprocess transport is UTF-8 NDJSON over adapter stdout to the core
-reader. Adapter stderr is reserved for bounded diagnostics. Adapter stdin is
-reserved for acknowledgements and control frames.
+The local transport is UTF-8 NDJSON over one full-duplex Unix stream socket per
+adapter. Adapter stderr is reserved for bounded container diagnostics. The
+same socket carries acknowledgements and control frames from the core.
 
 The first frame must be `hello` and list supported protocol versions. Every
 subsequent line contains exactly one JSON object. The default maximum line size
@@ -29,9 +29,10 @@ the selected version before it accepts observation frames.
 
 The core acknowledges an observation only after its event ID, source cursor,
 content, and every classifier promotion caused by that observation are durably
-committed in one transaction. An adapter must resume from its last acknowledged
-cursor. A Unix-domain socket is a distinct, length-prefixed transport and will
-have its own specification before implementation.
+committed in one transaction. On every socket reconnect, an adapter must resume
+from the durable cursor sent by the core. Socket filesystem permissions and
+per-adapter mount namespaces are part of the deployment boundary; framing
+limits do not replace that isolation.
 
 ## SSH classifier
 

@@ -20,6 +20,7 @@ import (
 )
 
 const version = "0.1.0"
+const maxSessionDiagnosticBytes = 8 * 1024
 
 func main() {
 	format := flag.String("format", "", "log format: nginx or cowrie")
@@ -94,7 +95,11 @@ func serveSocket(ctx context.Context, path string, serve func(net.Conn) error) e
 		sessionErr := serve(connection)
 		_ = connection.Close()
 		if sessionErr != nil && ctx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "adapter session stopped: %q\n", sessionErr.Error())
+			message := sessionErr.Error()
+			if len(message) > maxSessionDiagnosticBytes {
+				message = message[:maxSessionDiagnosticBytes]
+			}
+			fmt.Fprintf(os.Stderr, "adapter session stopped: %q\n", message)
 		}
 	}
 }

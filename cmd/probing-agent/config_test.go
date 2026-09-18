@@ -69,6 +69,14 @@ func TestLoadConfigRejectsUnknownAndDuplicateAdapters(t *testing.T) {
 	if _, _, _, err := configuration.classifiers(); err == nil {
 		t.Fatal("config accepted a negative SSH threshold")
 	}
+
+	relativeSocket := writeConfig(t, `{
+		"database_path":"state.db",
+		"adapters":[{"id":"one","socket_path":"ipc/one.sock"}]
+	}`)
+	if _, err := loadConfig(relativeSocket); err == nil {
+		t.Fatal("config accepted a relative adapter socket")
+	}
 }
 
 func writeConfig(t *testing.T, contents string) string {

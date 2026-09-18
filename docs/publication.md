@@ -27,9 +27,16 @@ directory `fsync`. Azure creation uses `If-None-Match: *`; an existing blob is
 success only when a bounded GET is byte-identical. The data workflow deletes a
 blob only after its acceptance commit is pushed.
 
+Central acceptance caps each source/IP/username/path period dimension at
+10,000 distinct values and simulates every batch against a deep copy of the
+ledger. A batch that would cross cardinality or the 64 MiB serialized ledger
+limit is quarantined before sequence, chain, count, or dimension state changes.
+The written ledger is size-checked again before atomic replacement.
+
 ## Key lifecycle
 
-Cloud-init creates the Ed25519 PKCS#8 key and lowercase UUID epoch once under
+The versioned migration script used by cloud-init creates the Ed25519 PKCS#8
+key and lowercase UUID epoch once under
 `/var/lib/probing`. The private key is mode `0600`, owned by UID/GID 65532,
 mounted only into the networkless collector, and never placed in Git, Bicep,
 environment variables, logs, or the uploader. The generated public key is safe
@@ -56,7 +63,7 @@ redundant, not regionally durable.
 
 Manual recovery:
 
-1. Stop `collector` and `uploader`; inspect disk space, file ownership, and
+1. Stop `collector`, both adapters, and `uploader`; inspect disk space, file ownership, and
    bounded outbox contents without printing envelope fields.
 2. Preserve `/var/lib/probing` before replacing the VM or OS disk.
 3. Restore the complete state set, ensure the private key is `0600`, and start

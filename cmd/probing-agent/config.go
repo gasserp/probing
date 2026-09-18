@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"time"
 	"unicode/utf8"
 
@@ -76,6 +77,9 @@ func loadConfig(path string) (config, error) {
 	for _, adapter := range loaded.Adapters {
 		if adapter.ID == "" || adapter.SocketPath == "" {
 			return config{}, errors.New("every adapter requires id and socket_path")
+		}
+		if !filepath.IsAbs(adapter.SocketPath) || filepath.Clean(adapter.SocketPath) != adapter.SocketPath {
+			return config{}, errors.New("every adapter socket_path must be absolute and clean")
 		}
 		if _, duplicate := seen[adapter.ID]; duplicate {
 			return config{}, fmt.Errorf("duplicate adapter ID %q", adapter.ID)
