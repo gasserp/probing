@@ -13,9 +13,8 @@ import (
 const (
 	MaxPublicDimensionValues = 100
 	MaxPeriodDimensionValues = 10_000
+	periodRetention          = 31 * 24 * time.Hour
 )
-
-var ErrPeriodCardinality = errors.New("period dimension cardinality limit reached")
 
 func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
 	for _, record := range payload.Records {
@@ -45,24 +44,94 @@ func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
 					return err
 				}
 				provenance := payload.SourceID + "/" + payload.SourceEpoch
-				if err := addMapCount(accumulator.Sources, provenance, bucket.Count); err != nil {
+				if err := addMapCount(accumulator.Sources, &accumulator.SourcesOverflow, provenance, bucket.Count); err != nil {
 					return err
 				}
-				if err := addMapCount(accumulator.SourceIPs, record.SourceIP, bucket.Count); err != nil {
+				if err := addMapCount(accumulator.SourceIPs, &accumulator.SourceIPsOverflow, record.SourceIP, bucket.Count); err != nil {
 					return err
 				}
 				if record.Kind == protocol.ObservationSSHAuthFailure {
-					if err := addMapCount(accumulator.Usernames, record.Username, bucket.Count); err != nil {
+					if err := addMapCount(accumulator.Usernames, &accumulator.UsernamesOverflow, record.Username, bucket.Count); err != nil {
 						return err
 					}
 				} else {
-					if err := addMapCount(accumulator.Paths, record.Path, bucket.Count); err != nil {
+					if err := addMapCount(accumulator.Paths, &accumulator.PathsOverflow, record.Path, bucket.Count); err != nil {
 						return err
 					}
 				}
 				ledger.Periods[key] = accumulator
 			}
 		}
+	}
+	return nil
+}
+
+// prunePeriods bounds ledger growth for periods more than 31 days past their
+// end. Hourly periods are dropped outright (daily/monthly/yearly rollups
+// already retain that history at coarser grain); other granularities keep
+// only their top MaxPublicDimensionValues values per dimension, folding the
+// remainder into that dimension's overflow count.
+func prunePeriods(ledger *Ledger, now time.Time) error {
+	cutoff := now.Add(-periodRetention)
+	for key, accumulator := range ledger.Periods {
+		granularity, period, found := strings.Cut(key, "\x00")
+		if !found {
+			continue
+		}
+		_, end, err := periodRange(granularity, period)
+		if err != nil {
+			return err
+		}
+		if !end.Before(cutoff) {
+			continue
+		}
+		if granularity == "hourly" {
+			delete(ledger.Periods, key)
+			continue
+		}
+		for _, dimension := range []struct {
+			values   map[string]uint64
+			overflow *uint64
+		}{
+			{accumulator.Sources, &accumulator.SourcesOverflow},
+			{accumulator.SourceIPs, &accumulator.SourceIPsOverflow},
+			{accumulator.Usernames, &accumulator.UsernamesOverflow},
+			{accumulator.Paths, &accumulator.PathsOverflow},
+		} {
+			if err := trimToTop(dimension.values, dimension.overflow, MaxPublicDimensionValues); err != nil {
+				return err
+			}
+		}
+		ledger.Periods[key] = accumulator
+	}
+	return nil
+}
+
+// trimToTop keeps the limit highest-count entries of values (ties broken by
+// key ascending) and folds the rest into overflow.
+func trimToTop(values map[string]uint64, overflow *uint64, limit int) error {
+	if len(values) <= limit {
+		return nil
+	}
+	type entry struct {
+		key   string
+		count uint64
+	}
+	entries := make([]entry, 0, len(values))
+	for key, count := range values {
+		entries = append(entries, entry{key, count})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].count != entries[j].count {
+			return entries[i].count > entries[j].count
+		}
+		return entries[i].key < entries[j].key
+	})
+	for _, dropped := range entries[limit:] {
+		if err := addCount(overflow, dropped.count); err != nil {
+			return err
+		}
+		delete(values, dropped.key)
 	}
 	return nil
 }
@@ -170,10 +239,10 @@ func topSources(values map[string]uint64) []SourceTotal {
 	return output
 }
 
-func addMapCount(values map[string]uint64, key string, amount uint64) error {
+func addMapCount(values map[string]uint64, overflow *uint64, key string, amount uint64) error {
 	current, exists := values[key]
 	if !exists && len(values) >= MaxPeriodDimensionValues {
-		return ErrPeriodCardinality
+		return addCount(overflow, amount)
 	}
 	if err := addCount(&current, amount); err != nil {
 		return err

@@ -27,11 +27,17 @@ directory `fsync`. Azure creation uses `If-None-Match: *`; an existing blob is
 success only when a bounded GET is byte-identical. The data workflow deletes a
 blob only after its acceptance commit is pushed.
 
-Central acceptance caps each source/IP/username/path period dimension at
-10,000 distinct values and simulates every batch against a deep copy of the
-ledger. A batch that would cross cardinality or the 64 MiB serialized ledger
-limit is quarantined before sequence, chain, count, or dimension state changes.
-The written ledger is size-checked again before atomic replacement.
+Central acceptance simulates every batch against a deep copy of the ledger; a
+batch that would cross the 64 MiB serialized ledger limit is quarantined
+before sequence, chain, count, or dimension state changes. Each
+source/IP/username/path period dimension is capped at 10,000 distinct
+values, but reaching the cap never quarantines a batch: values past the cap
+roll into that dimension's overflow count so the period total stays exact.
+Periods more than 31 days past their end are retained at reduced
+resolution — non-hourly periods keep only their top 100 values per
+dimension (the rest folded into overflow), and hourly periods are dropped
+from the ledger and `hourly.json` entirely. The written ledger is
+size-checked again before atomic replacement.
 
 ## Key lifecycle
 

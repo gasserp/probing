@@ -91,6 +91,9 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if err := prunePeriods(&ledger, options.Now); err != nil {
+		return Result{}, err
+	}
 	if len(quarantine.Entries) > 0 {
 		quarantine.UpdatedAt = options.Now.Format(time.RFC3339Nano)
 	} else if ledger.UpdatedAt != "" {
@@ -373,9 +376,6 @@ func acceptNewCandidate(ledger Ledger, item candidate, maxLedgerBytes int) (Ledg
 		index = len(trial.Sources) - 1
 	}
 	if err := applyPayload(&trial, payload); err != nil {
-		if errors.Is(err, ErrPeriodCardinality) {
-			return Ledger{}, "aggregation_limit", nil
-		}
 		return Ledger{}, "", err
 	}
 	source := &trial.Sources[index]
@@ -427,11 +427,15 @@ func cloneLedger(ledger Ledger) Ledger {
 	}
 	for key, period := range ledger.Periods {
 		clone.Periods[key] = PeriodLedger{
-			Total:     period.Total,
-			Sources:   cloneCounts(period.Sources),
-			SourceIPs: cloneCounts(period.SourceIPs),
-			Usernames: cloneCounts(period.Usernames),
-			Paths:     cloneCounts(period.Paths),
+			Total:             period.Total,
+			Sources:           cloneCounts(period.Sources),
+			SourcesOverflow:   period.SourcesOverflow,
+			SourceIPs:         cloneCounts(period.SourceIPs),
+			SourceIPsOverflow: period.SourceIPsOverflow,
+			Usernames:         cloneCounts(period.Usernames),
+			UsernamesOverflow: period.UsernamesOverflow,
+			Paths:             cloneCounts(period.Paths),
+			PathsOverflow:     period.PathsOverflow,
 		}
 	}
 	return clone

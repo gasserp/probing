@@ -46,11 +46,15 @@ type LedgerBatch struct {
 }
 
 type PeriodLedger struct {
-	Total     uint64            `json:"total"`
-	Sources   map[string]uint64 `json:"sources"`
-	SourceIPs map[string]uint64 `json:"source_ips"`
-	Usernames map[string]uint64 `json:"usernames"`
-	Paths     map[string]uint64 `json:"paths"`
+	Total             uint64            `json:"total"`
+	Sources           map[string]uint64 `json:"sources"`
+	SourcesOverflow   uint64            `json:"sources_overflow"`
+	SourceIPs         map[string]uint64 `json:"source_ips"`
+	SourceIPsOverflow uint64            `json:"source_ips_overflow"`
+	Usernames         map[string]uint64 `json:"usernames"`
+	UsernamesOverflow uint64            `json:"usernames_overflow"`
+	Paths             map[string]uint64 `json:"paths"`
+	PathsOverflow     uint64            `json:"paths_overflow"`
 }
 
 type RollupFile struct {

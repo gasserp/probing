@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -199,18 +198,23 @@ func TestAcceptanceLimitsDoNotPoisonLedger(t *testing.T) {
 			},
 		},
 	}
-	before := cloneLedger(ledger)
 	quarantine := Quarantine{SchemaVersion: QuarantineSchemaVersion, Entries: []QuarantineEntry{}}
 	result, err := acceptCandidates(context.Background(), &ledger, []candidate{item}, &quarantine)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Accepted != 0 || len(quarantine.Entries) != 1 ||
-		quarantine.Entries[0].Reason != "aggregation_limit" {
-		t.Fatalf("cardinality exhaustion result = %#v, quarantine = %#v", result, quarantine)
+	if result.Accepted != 1 || len(quarantine.Entries) != 0 {
+		t.Fatalf("cardinality exhaustion should overflow, not quarantine: result = %#v, quarantine = %#v", result, quarantine)
 	}
-	if !reflect.DeepEqual(ledger, before) {
-		t.Fatal("cardinality exhaustion partially mutated the acceptance ledger")
+	period := ledger.Periods["hourly\x002026-09-10T19:00:00Z"]
+	if len(period.SourceIPs) != MaxPeriodDimensionValues {
+		t.Fatalf("SourceIPs map should stay capped at %d entries, got %d", MaxPeriodDimensionValues, len(period.SourceIPs))
+	}
+	if period.SourceIPsOverflow != 2 {
+		t.Fatalf("SourceIPsOverflow = %d, want 2", period.SourceIPsOverflow)
+	}
+	if period.Total != uint64(MaxPeriodDimensionValues)+2 {
+		t.Fatalf("period.Total = %d, want %d", period.Total, uint64(MaxPeriodDimensionValues)+2)
 	}
 	root := t.TempDir()
 	ledgerPath := filepath.Join(root, "data", "acceptance-ledger.json")
@@ -239,6 +243,67 @@ func TestAcceptanceLimitsDoNotPoisonLedger(t *testing.T) {
 	}
 	if len(empty.Sources) != 0 || len(empty.Periods) != 0 {
 		t.Fatal("serialized ledger exhaustion mutated the original ledger")
+	}
+}
+
+func TestPrunePeriodsDropsOldHourlyAndTrimsOthers(t *testing.T) {
+	ledger := Ledger{
+		SchemaVersion: LedgerSchemaVersion,
+		Periods: map[string]PeriodLedger{
+			"hourly\x002026-01-01T00:00:00Z": {
+				Total:     5,
+				Sources:   map[string]uint64{},
+				SourceIPs: map[string]uint64{},
+				Usernames: map[string]uint64{},
+				Paths:     map[string]uint64{},
+			},
+			"daily\x002026-01-01": {
+				Total:     105,
+				Sources:   make(map[string]uint64, 105),
+				SourceIPs: map[string]uint64{},
+				Usernames: map[string]uint64{},
+				Paths:     map[string]uint64{},
+			},
+			"hourly\x002026-09-15T00:00:00Z": {
+				Total:     105,
+				Sources:   make(map[string]uint64, 105),
+				SourceIPs: map[string]uint64{},
+				Usernames: map[string]uint64{},
+				Paths:     map[string]uint64{},
+			},
+		},
+	}
+	for i := 0; i < 105; i++ {
+		ledger.Periods["daily\x002026-01-01"].Sources[fmt.Sprintf("source-%d", i)] = 1
+		ledger.Periods["hourly\x002026-09-15T00:00:00Z"].Sources[fmt.Sprintf("source-%d", i)] = 1
+	}
+
+	now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
+	if err := prunePeriods(&ledger, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Old hourly period should be dropped
+	if _, exists := ledger.Periods["hourly\x002026-01-01T00:00:00Z"]; exists {
+		t.Fatal("old hourly period should have been dropped")
+	}
+
+	// Old daily period should be trimmed
+	dailyPeriod := ledger.Periods["daily\x002026-01-01"]
+	if len(dailyPeriod.Sources) != MaxPublicDimensionValues {
+		t.Fatalf("daily period sources should be trimmed to %d entries, got %d", MaxPublicDimensionValues, len(dailyPeriod.Sources))
+	}
+	if dailyPeriod.SourcesOverflow != 5 {
+		t.Fatalf("daily period sources overflow = %d, want 5", dailyPeriod.SourcesOverflow)
+	}
+
+	// Recent hourly period should be untouched
+	hourlyPeriod := ledger.Periods["hourly\x002026-09-15T00:00:00Z"]
+	if len(hourlyPeriod.Sources) != 105 {
+		t.Fatalf("recent hourly period sources should remain at 105 entries, got %d", len(hourlyPeriod.Sources))
+	}
+	if hourlyPeriod.SourcesOverflow != 0 {
+		t.Fatalf("recent hourly period sources overflow = %d, want 0", hourlyPeriod.SourcesOverflow)
 	}
 }
 
