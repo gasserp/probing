@@ -196,6 +196,18 @@ func (p *batchPublisher) reconcileReceipts(ctx context.Context) error {
 		envelopeName := strings.TrimSuffix(entry.Name(), ".receipt.json") + ".json"
 		envelopePath := filepath.Join(p.outboxDir, envelopeName)
 		envelopeBytes, err := readBoundedFile(envelopePath, protocol.MaxEncodedEnvelopeBytes)
+		if errors.Is(err, os.ErrNotExist) {
+			// The envelope is already gone, so a prior acknowledge() already
+			// removed it (envelope removal now happens before receipt
+			// removal — see acknowledge()). This receipt is a stale leftover
+			// from a crash between those two removes; the batch was already
+			// durably marked published before either removal happened, so
+			// just clean up the orphan and move on.
+			if err := os.Remove(receiptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("remove orphaned receipt: %w", err)
+			}
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("read acknowledged envelope: %w", err)
 		}
@@ -244,11 +256,11 @@ func (p *batchPublisher) acknowledge(
 	); err != nil {
 		return err
 	}
-	if err := os.Remove(receiptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove acknowledged receipt: %w", err)
-	}
 	if err := os.Remove(envelopePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove acknowledged envelope: %w", err)
+	}
+	if err := os.Remove(receiptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove acknowledged receipt: %w", err)
 	}
 	if err := publication.SyncDirectory(p.outboxDir); err != nil {
 		return err
