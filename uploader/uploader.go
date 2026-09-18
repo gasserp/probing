@@ -124,6 +124,9 @@ func (u *Uploader) UploadOnce(ctx context.Context) error {
 			return errors.New("outbox envelope must not be a symbolic link")
 		}
 		info, err := entry.Info()
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("inspect outbox envelope: %w", err)
 		}
@@ -132,6 +135,9 @@ func (u *Uploader) UploadOnce(ctx context.Context) error {
 		}
 		path := filepath.Join(u.config.OutboxDir, entry.Name())
 		data, err := readBounded(path, protocol.MaxEncodedEnvelopeBytes)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
