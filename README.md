@@ -13,12 +13,16 @@ The project is protocol-first. The current milestone provides:
 - normalized parsers for Nginx JSON, OpenSSH journal JSON, and Cowrie JSON;
 - SQLite/WAL-backed atomic cursor, observation, and promotion storage;
 - a fail-closed processor connecting classification and durable commits;
-- immutable, hash-chained pending batches with exact-byte retry; and
+- immutable, hash-chained pending batches with exact-byte retry;
+- a networkless collector outbox and managed-identity Azure Blob uploader;
+- strict central acceptance, replay-ledger, and UTC rollup tooling;
+- a dependency-free public Pages dashboard; and
 - JSON Schemas and threat-model documentation.
 
-Publishing exact source IP addresses, attempted usernames, and eligible
-suspected-probe paths is intentionally disabled until the GitHub registry,
-acceptance ledger, privacy gate, and bounded ingestion workflow are complete.
+Accepted promoted observations intentionally publish exact source IP addresses,
+attempted usernames, and eligible suspected-probe paths. They are prominently
+labeled **self-reported suspected probes**: source signatures establish
+provenance, not truth, intent, ownership, compromise, or abuse.
 
 ## Development
 
@@ -26,10 +30,12 @@ Go 1.24 or newer is required.
 
 ```sh
 go test ./...
-go build ./cmd/probing-agent
-go build ./cmd/probing-file-adapter
+go build ./cmd/...
 ```
 
 See [`docs/protocol-v1.md`](docs/protocol-v1.md) for wire semantics and
 [`docs/threat-model.md`](docs/threat-model.md) for trust boundaries. Agent
-configuration is documented in [`docs/agent.md`](docs/agent.md).
+configuration is documented in [`docs/agent.md`](docs/agent.md). Publication
+operations and the dependent data-repository contract are documented in
+[`docs/publication.md`](docs/publication.md) and
+[`docs/data-repository.md`](docs/data-repository.md).

@@ -17,9 +17,9 @@ never ingestion or publication time.
 
 ## Adapter transport
 
-The subprocess transport is UTF-8 NDJSON over adapter stdout to the core
-reader. Adapter stderr is reserved for bounded diagnostics. Adapter stdin is
-reserved for acknowledgements and control frames.
+The local transport is UTF-8 NDJSON over one full-duplex Unix stream socket per
+adapter. Adapter stderr is reserved for bounded container diagnostics. The
+same socket carries acknowledgements and control frames from the core.
 
 The first frame must be `hello` and list supported protocol versions. Every
 subsequent line contains exactly one JSON object. The default maximum line size
@@ -29,9 +29,10 @@ the selected version before it accepts observation frames.
 
 The core acknowledges an observation only after its event ID, source cursor,
 content, and every classifier promotion caused by that observation are durably
-committed in one transaction. An adapter must resume from its last acknowledged
-cursor. A Unix-domain socket is a distinct, length-prefixed transport and will
-have its own specification before implementation.
+committed in one transaction. On every socket reconnect, an adapter must resume
+from the durable cursor sent by the core. Socket filesystem permissions and
+per-adapter mount namespaces are part of the deployment boundary; framing
+limits do not replace that isolation.
 
 ## SSH classifier
 
@@ -81,8 +82,11 @@ hashes the discarded query or fragment.
 A batch identity is `(source_id, source_epoch, sequence)`. Sequence is a
 canonical unsigned decimal string scoped to the epoch. Sequence zero has no
 predecessor; every later batch names the previous accepted payload hash.
-Retries must publish byte-identical content. Conflicting content at an accepted
-identity is rejected.
+Retries must publish byte-identical content. The deterministic Azure blob name
+is
+`source_id/source_epoch/<sequence-digit-count>-<sequence>/<payload-hash>.json`.
+The length prefix preserves lexical sequence order without weakening canonical
+decimal validation. Conflicting content at an accepted identity is rejected.
 
 Payloads are canonicalized with RFC 8785. Ed25519 signs:
 
@@ -105,14 +109,14 @@ authoritative for accepted identity/hash pairs.
 
 ## Git volume policy
 
-The central repository stores only the acceptance ledger and compact derived
-rollups. Exact immutable batches remain in each source repository. The initial
-publishing milestone will set per-source daily and annual byte budgets before
-enabling public pushes. Acceptance stops visibly at a budget boundary; data is
-never silently truncated. A source must rotate to a reviewed annual repository
-or configured object-store archive before exceeding its repository ceiling.
-Pending-batch retrieval is one batch at a time, and the local store refuses to
-create more than 128 unpublished batches.
+The central repository stores only the compact acceptance ledger and derived
+rollups. Exact immutable envelopes remain in Azure Blob for 30 days, then the
+lifecycle policy deletes them. GitHub ingestion deletes accepted or
+byte-identical replay blobs only after the resulting data-repository commit.
+Invalid blobs remain for investigation until retention applies. Acceptance is
+bounded to 256 files, 64 MiB, 64 registered sources, 100,000 accepted batches,
+and two minutes per invocation. Pending-batch retrieval is one batch at a time,
+and the local store refuses to create more than 128 unpublished batches.
 
 ## Registration and recovery
 

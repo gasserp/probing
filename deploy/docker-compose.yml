@@ -22,6 +22,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      target: probing-collector
     restart: unless-stopped
     command: ["-config", "/etc/probing/config.json"]
     user: "65532:65532"
@@ -34,8 +35,87 @@ services:
     volumes:
       - ./config.json:/etc/probing/config.json:ro
       - /var/lib/probing:/data
-      - nginx-logs:/logs/nginx:ro
-      - cowrie-var:/logs/cowrie:ro
+      - /var/lib/probing/outbox:/outbox
+      - /var/lib/probing/ipc/nginx:/ipc/nginx:ro
+      - /var/lib/probing/ipc/cowrie:/ipc/cowrie:ro
+    depends_on:
+      - nginx-adapter
+      - cowrie-adapter
+
+  nginx-adapter:
+    image: ${PROBING_ADAPTER_IMAGE:-ghcr.io/gasserp/probing:adapter-main}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: probing-file-adapter
+    restart: unless-stopped
+    command:
+      - "-format"
+      - "nginx"
+      - "-file"
+      - "/logs/access.jsonl"
+      - "-socket"
+      - "/ipc/adapter.sock"
+    user: "65533:65532"
+    read_only: true
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - nginx-logs:/logs:ro
+      - /var/lib/probing/ipc/nginx:/ipc
+
+  cowrie-adapter:
+    image: ${PROBING_ADAPTER_IMAGE:-ghcr.io/gasserp/probing:adapter-main}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: probing-file-adapter
+    restart: unless-stopped
+    command:
+      - "-format"
+      - "cowrie"
+      - "-file"
+      - "/logs/log/cowrie/cowrie.json"
+      - "-socket"
+      - "/ipc/adapter.sock"
+    user: "65534:65532"
+    read_only: true
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - cowrie-var:/logs:ro
+      - /var/lib/probing/ipc/cowrie:/ipc
+
+  uploader:
+    image: ${PROBING_UPLOADER_IMAGE:-ghcr.io/gasserp/probing:uploader-main}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: probing-uploader
+    restart: unless-stopped
+    command:
+      - "-account"
+      - "${PROBING_STORAGE_ACCOUNT:?set PROBING_STORAGE_ACCOUNT}"
+      - "-container"
+      - "${PROBING_STORAGE_CONTAINER:?set PROBING_STORAGE_CONTAINER}"
+      - "-outbox"
+      - "/outbox"
+    user: "65532:65532"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - /var/lib/probing/outbox:/outbox
+    networks:
+      - upload
 
   nginx:
     image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
@@ -88,6 +168,7 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  upload: {}
 
 volumes:
   nginx-logs:

@@ -1,0 +1,82 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #07120f;
+  color: #e6f5ed;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 15% 0%, #143d31 0, transparent 35rem),
+    #07120f;
+}
+
+header, main, footer {
+  width: min(72rem, calc(100% - 2rem));
+  margin: 0 auto;
+}
+
+header { padding: 4rem 0 2rem; }
+main { display: grid; gap: 1.5rem; }
+footer { padding: 3rem 0; color: #9eb5aa; }
+
+h1 {
+  max-width: 18ch;
+  margin: .25rem 0 1rem;
+  font-family: system-ui, sans-serif;
+  font-size: clamp(2.5rem, 7vw, 5.5rem);
+  line-height: .95;
+  letter-spacing: -.05em;
+}
+
+h2 {
+  margin-top: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 1rem;
+}
+
+.eyebrow { color: #5df0a8; text-transform: uppercase; letter-spacing: .15em; }
+.notice { max-width: 58rem; color: #bfd2c8; line-height: 1.6; }
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1.5rem; }
+.badge { border: 1px solid #5df0a8; border-radius: 999px; padding: .4rem .75rem; color: #5df0a8; }
+.badge.stale { border-color: #ffcc66; color: #ffcc66; }
+.badge.error { border-color: #ff7b72; color: #ff7b72; }
+.subtle, #updated { color: #9eb5aa; }
+
+section, article {
+  border: 1px solid #285143;
+  background: rgb(11 30 24 / 86%);
+  border-radius: .75rem;
+  padding: 1.25rem;
+}
+
+.summary, .tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.summary, .tables { border: 0; background: transparent; padding: 0; }
+.metric { margin: 0; color: #5df0a8; font-size: clamp(2rem, 5vw, 4rem); }
+.chart { min-height: 15rem; overflow-x: auto; }
+.chart svg { width: 100%; min-width: 42rem; height: 15rem; }
+.chart polyline { fill: none; stroke: #5df0a8; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.chart line { stroke: #285143; }
+.chart text { fill: #9eb5aa; font-size: 11px; }
+
+ol { margin: 0; padding-left: 2rem; }
+li { margin: .65rem 0; overflow-wrap: anywhere; }
+li span { color: #9eb5aa; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: .75rem; border-bottom: 1px solid #285143; text-align: left; }
+th { color: #9eb5aa; font-weight: 400; }
+td:last-child, th:last-child { text-align: right; }
+
+@media (max-width: 36rem) {
+  header { padding-top: 2rem; }
+  section, article { padding: 1rem; }
+}

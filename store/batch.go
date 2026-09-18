@@ -182,15 +182,18 @@ func (s *Store) NextPendingBatch(ctx context.Context) (PendingBatch, bool, error
 	return batch, true, nil
 }
 
-func (s *Store) MarkBatchPublished(ctx context.Context, sequence, commitSHA string) error {
-	if !validGitObjectID(commitSHA) {
-		return errors.New("published commit SHA must be a lowercase 40- or 64-character hex object ID")
+func (s *Store) MarkBatchPublished(ctx context.Context, sequence, payloadHash, receiptHash string) error {
+	if !validReceiptHash(payloadHash) {
+		return errors.New("published payload hash must be a lowercase SHA-256 digest")
+	}
+	if !validReceiptHash(receiptHash) {
+		return errors.New("publication receipt hash must be a lowercase SHA-256 digest")
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE batches
 		SET published_commit_sha = ?
-		WHERE sequence = ? AND published_commit_sha IS NULL
-	`, commitSHA, sequence)
+		WHERE sequence = ? AND payload_hash = ? AND published_commit_sha IS NULL
+	`, receiptHash, sequence, payloadHash)
 	if err != nil {
 		return fmt.Errorf("mark batch published: %w", err)
 	}
@@ -198,8 +201,20 @@ func (s *Store) MarkBatchPublished(ctx context.Context, sequence, commitSHA stri
 	if err != nil {
 		return fmt.Errorf("inspect published batch update: %w", err)
 	}
-	if rows != 1 {
-		return errors.New("pending batch sequence was not found")
+	if rows == 1 {
+		return nil
+	}
+	var stored, storedPayloadHash string
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT payload_hash, published_commit_sha FROM batches WHERE sequence = ?
+	`, sequence).Scan(&storedPayloadHash, &stored); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("batch sequence was not found")
+		}
+		return fmt.Errorf("read publication receipt: %w", err)
+	}
+	if storedPayloadHash != payloadHash || stored != receiptHash {
+		return errors.New("batch already has a different publication receipt")
 	}
 	return nil
 }
@@ -443,8 +458,8 @@ func incrementSequence(sequence string) (string, error) {
 	return strconv.FormatUint(value+1, 10), nil
 }
 
-func validGitObjectID(value string) bool {
-	if len(value) != 40 && len(value) != 64 {
+func validReceiptHash(value string) bool {
+	if len(value) != 64 {
 		return false
 	}
 	for _, r := range value {

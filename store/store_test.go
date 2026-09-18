@@ -283,7 +283,12 @@ func TestPendingBatchIsImmutableAcrossRestart(t *testing.T) {
 	if cursor != "cursor-1" {
 		t.Fatalf("failed atomic promotion advanced cursor to %q", cursor)
 	}
-	if err := state.MarkBatchPublished(ctx, "0", "0123456789abcdef0123456789abcdef01234567"); err != nil {
+	if err := state.MarkBatchPublished(
+		ctx,
+		"0",
+		first.PayloadHash,
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	); err != nil {
 		t.Fatal(err)
 	}
 	_, found, err = state.NextPendingBatch(ctx)

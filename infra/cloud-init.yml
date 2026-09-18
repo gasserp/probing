@@ -5,30 +5,17 @@ bootcmd:
 
 packages:
   - curl
-  - docker.io
-  - docker-compose-v2
   - git
 
 runcmd:
-  - install -d -o 65532 -g 65532 -m 0750 /var/lib/probing
-  - systemctl enable --now docker
   - |
     set -eu
-    fallocate -l 2G /swapfile
-    chmod 0600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
-    git clone --depth 1 https://github.com/gasserp/probing.git /opt/probing
-    cd /opt/probing
-    docker compose -f deploy/docker-compose.yml build collector
-    docker compose -f deploy/docker-compose.yml pull --ignore-buildable
-    docker compose -f deploy/docker-compose.yml up -d --no-build
-    sleep 15
-    for service in collector ingress nginx cowrie; do
-      if ! docker compose -f deploy/docker-compose.yml ps --services --status running | grep -qx "$service"; then
-        exit 1
-      fi
-    done
-    curl --fail --silent --show-error http://127.0.0.1/health
-    timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22'
+    if [ ! -d /opt/probing/.git ]; then
+      git clone --no-checkout https://github.com/gasserp/probing.git /opt/probing
+    fi
+    git -C /opt/probing fetch --depth 1 origin __PROBING_REPOSITORY_REF__
+    git -C /opt/probing checkout --detach FETCH_HEAD
+    /opt/probing/infra/migrate-v2.sh \
+      --storage-account __STORAGE_ACCOUNT_NAME__ \
+      --storage-container __STORAGE_CONTAINER_NAME__ \
+      --repository-ref __PROBING_REPOSITORY_REF__

@@ -42,6 +42,12 @@ probing-file-adapter --format nginx --file /var/log/nginx/probing.jsonl
 probing-file-adapter --format cowrie --file /var/log/cowrie/cowrie.json
 ```
 
+Production also requires `--socket /ipc/adapter.sock`. The reference Compose
+deployment runs Nginx and Cowrie adapters in separate `network_mode: none`
+containers under UIDs 65533 and 65534. Each receives only its own read-only log
+mount and private socket directory. The signing key, SQLite state, outbox, and
+the other adapter's files are absent from its mount namespace.
+
 It identifies files by device and inode, resumes at the last acknowledged byte
 offset, detects rotation or truncation, bounds lines before parsing, and waits
 for a durable core acknowledgement after every observation or checkpoint.

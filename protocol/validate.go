@@ -88,11 +88,8 @@ func ValidateBatchPayload(payload BatchPayload) error {
 	if payload.SchemaVersion != BatchSchemaVersion {
 		return fmt.Errorf("unsupported schema version %q", payload.SchemaVersion)
 	}
-	if len(payload.SourceID) > MaxSourceIDBytes || !sourceIDPattern.MatchString(payload.SourceID) {
-		return errors.New("source_id is invalid")
-	}
-	if !epochPattern.MatchString(payload.SourceEpoch) {
-		return errors.New("source_epoch must be a lowercase UUID")
+	if err := ValidateSourceIdentity(payload.SourceID, payload.SourceEpoch); err != nil {
+		return err
 	}
 	if err := validateSequence(payload.Sequence); err != nil {
 		return err
@@ -145,6 +142,23 @@ func ValidateBatchPayload(payload BatchPayload) error {
 	}
 	if len(encoded) > MaxEncodedBatchBytes {
 		return fmt.Errorf("encoded batch payload exceeds %d bytes", MaxEncodedBatchBytes)
+	}
+	return nil
+}
+
+func ValidateSourceIdentity(sourceID, sourceEpoch string) error {
+	if len(sourceID) > MaxSourceIDBytes || !sourceIDPattern.MatchString(sourceID) {
+		return errors.New("source_id is invalid")
+	}
+	if !epochPattern.MatchString(sourceEpoch) {
+		return errors.New("source_epoch must be a lowercase UUID")
+	}
+	return nil
+}
+
+func ValidateKeyID(keyID string) error {
+	if !validBoundedText(keyID, MaxKeyIDBytes) {
+		return errors.New("key ID is invalid")
 	}
 	return nil
 }

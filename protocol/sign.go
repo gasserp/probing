@@ -57,8 +57,8 @@ func SignBatch(payload BatchPayload, keyID string, privateKey ed25519.PrivateKey
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return SignedBatch{}, errors.New("invalid Ed25519 private key")
 	}
-	if !validBoundedText(keyID, MaxKeyIDBytes) {
-		return SignedBatch{}, errors.New("key ID is invalid")
+	if err := ValidateKeyID(keyID); err != nil {
+		return SignedBatch{}, err
 	}
 	if err := ValidateBatchPayload(payload); err != nil {
 		return SignedBatch{}, err
@@ -87,8 +87,8 @@ func VerifyBatch(batch SignedBatch, publicKey ed25519.PublicKey) error {
 	if batch.Signature.Algorithm != "Ed25519" {
 		return fmt.Errorf("unsupported signature algorithm %q", batch.Signature.Algorithm)
 	}
-	if !validBoundedText(batch.Signature.KeyID, MaxKeyIDBytes) {
-		return errors.New("signature key ID is invalid")
+	if err := ValidateKeyID(batch.Signature.KeyID); err != nil {
+		return fmt.Errorf("signature %w", err)
 	}
 	if err := ValidateBatchPayload(batch.Payload); err != nil {
 		return err

@@ -22,6 +22,8 @@ param resourceGroupName string = 'probing-collector'
 param vmName string = 'probing-collector-01'
 param maxSpotPrice string = '0.02'
 param includeCloudInit bool = true
+@description('Git ref or commit used by the versioned collector migration.')
+param repositoryRef string = 'main'
 
 var isSpot = computeProfile == 'spot-low-cost'
 var vmSize = isSpot ? 'Standard_A1_v2' : 'Standard_B1s'
@@ -43,8 +45,15 @@ module collector 'modules/collector.bicep' = {
     dualStack: networkProfile == 'dual-stack'
     adminSshPublicKey: adminSshPublicKey
     includeCloudInit: includeCloudInit
+    repositoryRef: repositoryRef
   }
 }
 
 output publicIPv6 string = collector.outputs.publicIPv6
 output publicIPv4 string = collector.outputs.publicIPv4
+output storageAccountName string = collector.outputs.storageAccountName
+output storageContainerName string = collector.outputs.storageContainerName
+output githubClientId string = collector.outputs.githubClientId
+output githubTenantId string = tenant().tenantId
+output githubSubscriptionId string = subscription().subscriptionId
+output resourceGroupName string = resourceGroup.name
