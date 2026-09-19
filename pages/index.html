@@ -8,55 +8,91 @@
     <script src="app.js" defer></script>
   </head>
   <body>
-    <header>
-      <p class="eyebrow">Public telemetry</p>
-      <h1>Self-reported suspected probes</h1>
-      <p class="notice">
-        These records are assertions from registered collectors. They are not
-        proof of intent, ownership, compromise, or abuse.
-      </p>
-      <div class="status">
+    <header class="masthead">
+      <div class="masthead-topline">
+        <a class="wordmark" href="#overview" aria-label="Probing telemetry overview">
+          <span class="wordmark-mark" aria-hidden="true"></span>
+          <span>probing<span class="wordmark-muted">/telemetry</span></span>
+        </a>
+        <p class="environment"><span aria-hidden="true"></span>Public data plane</p>
+      </div>
+      <div class="masthead-content">
+        <div>
+          <p class="eyebrow">Network observation index</p>
+          <h1>Self-reported suspected probes</h1>
+        </div>
+        <p class="notice">
+          These records are assertions from registered collectors. They are not
+          proof of intent, ownership, compromise, or abuse.
+        </p>
+      </div>
+      <div class="status" aria-live="polite">
         <span id="freshness" class="badge">Loading data</span>
         <span id="updated"></span>
       </div>
     </header>
     <main>
-      <section class="summary" aria-label="Summary">
-        <article>
+      <section id="overview" class="summary" aria-label="Summary">
+        <article class="metric-card">
+          <p class="card-kicker">Accepted volume</p>
           <h2>Total accepted observations</h2>
           <p id="total" class="metric">-</p>
         </article>
-        <article>
+        <article class="metric-card">
+          <p class="card-kicker">Collector coverage</p>
           <h2>Registered source epochs reporting</h2>
           <p id="source-count" class="metric">-</p>
         </article>
       </section>
-      <section>
-        <h2>Hourly observations</h2>
-        <p class="subtle">Latest 168 UTC hours in the accepted rollups.</p>
-        <div id="chart" class="chart" role="img" aria-label="Hourly observation counts"></div>
-      </section>
-      <section>
-        <h2>Source IP protocol</h2>
-        <p class="subtle">Share of accepted source IPs by protocol version.</p>
-        <div id="ip-versions" class="ipver" role="img" aria-label="Share of source IPs by IPv4 vs IPv6"></div>
+      <section class="analysis-grid" aria-label="Observation analysis">
+        <article class="panel chart-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Time series</p>
+              <h2>Hourly observations</h2>
+            </div>
+            <p class="panel-tag">168h window</p>
+          </div>
+          <p class="subtle">Latest accepted UTC hours in the published rollups.</p>
+          <div id="chart" class="chart" role="img" aria-label="Hourly observation counts"></div>
+        </article>
+        <article class="panel protocol-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Address family</p>
+              <h2>Source IP protocol</h2>
+            </div>
+            <p class="panel-tag">Traffic mix</p>
+          </div>
+          <p class="subtle">Share of accepted source IPs by protocol version.</p>
+          <div id="ip-versions" class="ipver" role="img" aria-label="Share of source IPs by IPv4 vs IPv6"></div>
+        </article>
       </section>
       <section class="tables">
-        <article>
+        <article class="panel list-panel">
+          <p class="card-kicker">Credential surface</p>
           <h2>Top attempted usernames</h2>
           <ol id="usernames"></ol>
         </article>
-        <article>
+        <article class="panel list-panel">
+          <p class="card-kicker">Application surface</p>
           <h2>Top eligible HTTP paths</h2>
           <ol id="paths"></ol>
         </article>
-        <article>
+        <article class="panel list-panel">
+          <p class="card-kicker">Origin distribution</p>
           <h2>Top source IPs</h2>
           <ol id="source-ips"></ol>
         </article>
       </section>
-      <section>
-        <h2>Source provenance</h2>
+      <section class="panel provenance-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="card-kicker">Data lineage</p>
+            <h2>Source provenance</h2>
+          </div>
+          <p class="panel-tag">Signed sources</p>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -68,8 +104,7 @@
       </section>
     </main>
     <footer>
-      Exact public source IPs, attempted usernames, and eligible paths are
-      intentionally published for accepted promoted observations.
+      <p>Exact public source IPs, attempted usernames, and eligible paths are intentionally published for accepted promoted observations.</p>
       <p>
         Request revocation or correction of a published record via a
         <a href="https://github.com/gasserp/probing-data/issues/new?template=revocation-request.md">GitHub issue</a>.
