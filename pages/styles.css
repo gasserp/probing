@@ -80,3 +80,11 @@ td:last-child, th:last-child { text-align: right; }
   header { padding-top: 2rem; }
   section, article { padding: 1rem; }
 }
+
+.ipver-bar { display: flex; height: 1.5rem; border-radius: .4rem; overflow: hidden; gap: 2px; background: #142b23; }
+.ipver-seg.ipv4 { background: #3987e5; }
+.ipver-seg.ipv6 { background: #d95926; }
+.ipver-legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .75rem; font-size: .9rem; color: #9eb5aa; }
+.ipver-key::before { content: ""; display: inline-block; width: .6rem; height: .6rem; border-radius: 2px; margin-right: .4rem; vertical-align: middle; }
+.ipver-key.ipv4::before { background: #3987e5; }
+.ipver-key.ipv6::before { background: #d95926; }

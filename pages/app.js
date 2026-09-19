@@ -84,6 +84,40 @@ function renderSources(periods) {
   }
 }
 
+function classifyIPVersion(ip) {
+  return ip.includes(":") ? "ipv6" : "ipv4";
+}
+
+function renderIPVersions(periods) {
+  const container = document.getElementById("ip-versions");
+  const counts = { ipv4: 0, ipv6: 0 };
+  for (const item of periods.flatMap((period) => period.source_ips || [])) {
+    counts[classifyIPVersion(item.value)] += Number(item.count || 0);
+  }
+  const total = counts.ipv4 + counts.ipv6;
+  if (!total) {
+    addText(container, "p", "No accepted source IPs");
+    return;
+  }
+  const bar = document.createElement("div");
+  bar.className = "ipver-bar";
+  const legend = document.createElement("div");
+  legend.className = "ipver-legend";
+  for (const [key, label] of [["ipv4", "IPv4"], ["ipv6", "IPv6"]]) {
+    const count = counts[key];
+    const pct = (count / total) * 100;
+    if (count) {
+      const seg = document.createElement("div");
+      seg.className = `ipver-seg ${key}`;
+      seg.style.flex = `${count} ${count} 0%`;
+      bar.appendChild(seg);
+    }
+    addText(legend, "span", `${label} — ${pct.toFixed(1)}% (${number.format(count)})`, `ipver-key ${key}`);
+  }
+  container.appendChild(bar);
+  container.appendChild(legend);
+}
+
 async function load() {
   const names = ["hourly", "yearly"];
   const responses = await Promise.all(names.map((name) => fetch(`data/${name}.json`, { cache: "no-store" })));
@@ -99,6 +133,7 @@ async function load() {
   document.getElementById("total").textContent = number.format(total);
   renderChart(hourlyPeriods);
   renderSources(yearlyPeriods);
+  renderIPVersions(yearlyPeriods);
   renderList("usernames", aggregate(yearlyPeriods.flatMap((period) => period.usernames || []), (item) => item.value));
   renderList("paths", aggregate(yearlyPeriods.flatMap((period) => period.paths || []), (item) => item.value));
   renderList("source-ips", aggregate(yearlyPeriods.flatMap((period) => period.source_ips || []), (item) => item.value));
