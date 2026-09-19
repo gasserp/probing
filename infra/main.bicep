@@ -7,7 +7,7 @@ param location string = 'westeurope'
   'ipv6-only'
   'dual-stack'
 ])
-param networkProfile string = 'ipv6-only'
+param networkProfile string = 'dual-stack'
 
 @allowed([
   'burstable-free'

@@ -87,10 +87,13 @@ az vm run-command invoke \
 ```
 
 Run the same command again to prove idempotency before registering the emitted
-epoch/public key. A temporary dual-stack profile may be needed for GitHub,
-GHCR, and package access; remove it immediately after both runs succeed.
+epoch/public key.
 
-Then remove public IPv4 from the NIC by redeploying the IPv6-only profile:
+`networkProfile=dual-stack` is also the permanent steady-state profile: most
+scanners only probe IPv4, so the public IPv4 address stays attached instead of
+being torn down after bootstrap. To fall back to IPv6-only, redeploy with
+`networkProfile=ipv6-only` and then delete the now-detached IPv4 resource
+(subscription deployments are incremental, so it won't be removed for you):
 
 ```sh
 az deployment sub create \
@@ -104,12 +107,6 @@ az deployment sub create \
     includeCloudInit=false \
     repositoryRef="$repositoryRef" \
     adminSshPublicKey="$(cat ~/.ssh/id_ed25519.pub)"
-```
-
-Subscription deployments are incremental, so explicitly delete the now
-detached IPv4 resource and confirm it is gone:
-
-```sh
 az network public-ip delete \
   --subscription "$subscription" \
   --resource-group probing-collector \

@@ -320,13 +320,41 @@ var storageBlobDataContributorRole = subscriptionResourceId(
   'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 )
 
+// The VM's uploader only ever creates a blob (PUT, If-None-Match: *) and,
+// on conflict, reads it back to compare bytes (uploader/uploader.go). It
+// never lists, deletes, or modifies a container, so it gets a scoped-down
+// role instead of the built-in Contributor role's delete permission.
+resource blobUploaderRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(resourceGroup().id, 'probing-collector-blob-uploader')
+  properties: {
+    roleName: 'probing-collector-blob-uploader'
+    description: 'Create and read back blob content; no delete, list, or container management.'
+    type: 'CustomRole'
+    assignableScopes: [
+      resourceGroup().id
+    ]
+    permissions: [
+      {
+        actions: []
+        notActions: []
+        dataActions: [
+          'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'
+          'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write'
+          'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action'
+        ]
+        notDataActions: []
+      }
+    ]
+  }
+}
+
 resource virtualMachineBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: batchContainer
-  name: guid(batchContainer.id, virtualMachine.id, 'storage-blob-data-contributor')
+  name: guid(batchContainer.id, virtualMachine.id, 'blob-uploader-no-delete')
   properties: {
     principalId: virtualMachine.identity.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: storageBlobDataContributorRole
+    roleDefinitionId: blobUploaderRole.id
   }
 }
 
