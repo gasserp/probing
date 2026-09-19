@@ -144,6 +144,13 @@ function renderIPVersions(periods) {
 }
 
 function renderUnavailableDashboard() {
+  document.getElementById("chart").replaceChildren();
+  document.getElementById("ip-versions").replaceChildren();
+  document.getElementById("usernames").replaceChildren();
+  document.getElementById("paths").replaceChildren();
+  document.getElementById("source-ips").replaceChildren();
+  document.getElementById("sources").replaceChildren();
+
   renderChart([]);
   renderIPVersions([]);
   for (const id of ["usernames", "paths", "source-ips"]) renderList(id, []);
