@@ -29,19 +29,39 @@ function renderList(id, values) {
     addText(row, "span", ` - ${number.format(item.count)}`);
     list.appendChild(row);
   }
-  if (!values.length) addText(list, "li", "No accepted values");
+  if (!values.length) addText(list, "li", "No accepted values", "empty-row");
 }
 
 function renderChart(periods) {
   const values = periods.slice(-168);
   const container = document.getElementById("chart");
   if (!values.length) {
-    addText(container, "p", "No accepted hourly observations");
+    container.classList.add("is-empty");
+    addText(container, "p", "No accepted hourly observations", "empty-state");
     return;
   }
   const namespace = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(namespace, "svg");
   svg.setAttribute("viewBox", "0 0 1000 240");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const defs = document.createElementNS(namespace, "defs");
+  const gradient = document.createElementNS(namespace, "linearGradient");
+  gradient.setAttribute("id", "chart-fill");
+  gradient.setAttribute("x1", "0");
+  gradient.setAttribute("x2", "0");
+  gradient.setAttribute("y1", "0");
+  gradient.setAttribute("y2", "1");
+  const start = document.createElementNS(namespace, "stop");
+  start.setAttribute("offset", "0%");
+  start.setAttribute("stop-color", "#6ee7f2");
+  start.setAttribute("stop-opacity", ".28");
+  const end = document.createElementNS(namespace, "stop");
+  end.setAttribute("offset", "100%");
+  end.setAttribute("stop-color", "#6ee7f2");
+  end.setAttribute("stop-opacity", "0");
+  gradient.append(start, end);
+  defs.appendChild(gradient);
+  svg.appendChild(defs);
   const maximum = Math.max(1, ...values.map((item) => Number(item.total || 0)));
   for (const y of [20, 110, 200]) {
     const line = document.createElementNS(namespace, "line");
@@ -57,7 +77,11 @@ function renderChart(periods) {
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
   const polyline = document.createElementNS(namespace, "polyline");
-  polyline.setAttribute("points", points.join(" "));
+  const pointString = points.join(" ");
+  const area = document.createElementNS(namespace, "polygon");
+  area.setAttribute("points", `0,200 ${pointString} 1000,200`);
+  svg.appendChild(area);
+  polyline.setAttribute("points", pointString);
   svg.appendChild(polyline);
   const label = document.createElementNS(namespace, "text");
   label.setAttribute("x", "4");
@@ -96,7 +120,8 @@ function renderIPVersions(periods) {
   }
   const total = counts.ipv4 + counts.ipv6;
   if (!total) {
-    addText(container, "p", "No accepted source IPs");
+    container.classList.add("is-empty");
+    addText(container, "p", "No accepted source IPs", "empty-state");
     return;
   }
   const bar = document.createElement("div");
@@ -116,6 +141,17 @@ function renderIPVersions(periods) {
   }
   container.appendChild(bar);
   container.appendChild(legend);
+}
+
+function renderUnavailableDashboard() {
+  renderChart([]);
+  renderIPVersions([]);
+  for (const id of ["usernames", "paths", "source-ips"]) renderList(id, []);
+
+  const row = document.createElement("tr");
+  const cell = addText(row, "td", "Rollup data unavailable", "empty-cell");
+  cell.colSpan = 3;
+  document.getElementById("sources").appendChild(row);
 }
 
 async function load() {
@@ -149,6 +185,7 @@ async function load() {
 }
 
 load().catch(() => {
+  renderUnavailableDashboard();
   const freshness = document.getElementById("freshness");
   freshness.textContent = "Data unavailable";
   freshness.classList.add("error");
