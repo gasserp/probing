@@ -15,10 +15,10 @@ all values with `textContent` and loads no third-party scripts.
 
 ## Latency and retries
 
-The collector closes work on UTC hour boundaries and uses the SSH classifier
-window as its finality watermark. Normal latency is therefore one hour plus up
-to the classifier window, the uploader poll interval, the data workflow
-schedule, and the Pages schedule. Spot eviction, GitHub delays, or a sequence
+The collector closes work on UTC hour boundaries and waits a fixed 30-second
+watermark before finalizing a batch. Normal latency is therefore one hour plus
+up to that watermark, the uploader poll interval, the data workflow schedule,
+and the Pages schedule. Spot eviction, GitHub delays, or a sequence
 gap make staleness visible rather than silently dropping data.
 
 SQLite/WAL commits observations, sequence state, payload hashes, and exact

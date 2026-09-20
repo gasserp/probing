@@ -14,6 +14,8 @@ import (
 	"github.com/gasserp/probing/store"
 )
 
+const publishWatermarkLag = 30 * time.Second
+
 func main() {
 	configPath := flag.String("config", "", "path to the agent JSON configuration")
 	flag.Parse()
@@ -32,7 +34,7 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	sshClassifier, httpClassifier, restoreWindow, err := configuration.classifiers()
+	sshClassifier, httpClassifier, err := configuration.classifiers()
 	if err != nil {
 		return err
 	}
@@ -48,9 +50,6 @@ func run(configPath string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := processor.RestoreSSH(ctx, time.Now().UTC().Add(-restoreWindow), sshClassifier.MaxTotalEvents()); err != nil {
-		return err
-	}
 	supervisor, err := core.NewSupervisor(processor)
 	if err != nil {
 		return err
@@ -58,7 +57,7 @@ func run(configPath string) error {
 	if configuration.Publication == nil {
 		return supervisor.Run(ctx, configuration.Adapters)
 	}
-	publisher, err := newBatchPublisher(state, *configuration.Publication, restoreWindow)
+	publisher, err := newBatchPublisher(state, *configuration.Publication, publishWatermarkLag)
 	if err != nil {
 		return err
 	}

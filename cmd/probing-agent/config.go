@@ -9,7 +9,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"time"
 	"unicode/utf8"
 
 	"github.com/gasserp/probing/classifier"
@@ -26,11 +25,8 @@ type config struct {
 }
 
 type sshConfig struct {
-	WindowSeconds             *int     `json:"window_seconds"`
-	PairThreshold             *int     `json:"pair_threshold"`
-	DistinctUsernameThreshold *int     `json:"distinct_username_threshold"`
-	ExcludedUsernames         []string `json:"excluded_usernames"`
-	TrustedCIDRs              []string `json:"trusted_cidrs"`
+	ExcludedUsernames []string `json:"excluded_usernames"`
+	TrustedCIDRs      []string `json:"trusted_cidrs"`
 }
 
 type httpConfig struct {
@@ -103,31 +99,19 @@ func loadConfig(path string) (config, error) {
 	return loaded, nil
 }
 
-func (c config) classifiers() (*classifier.SSHClassifier, *classifier.HTTPClassifier, time.Duration, error) {
+func (c config) classifiers() (*classifier.SSHClassifier, *classifier.HTTPClassifier, error) {
 	ssh := classifier.DefaultSSHConfig()
-	if c.SSH.WindowSeconds != nil {
-		if *c.SSH.WindowSeconds <= 0 || *c.SSH.WindowSeconds > 86_400 {
-			return nil, nil, 0, errors.New("ssh.window_seconds must be between 1 and 86400")
-		}
-		ssh.Window = time.Duration(*c.SSH.WindowSeconds) * time.Second
-	}
-	if c.SSH.PairThreshold != nil {
-		ssh.PairThreshold = *c.SSH.PairThreshold
-	}
-	if c.SSH.DistinctUsernameThreshold != nil {
-		ssh.DistinctUsernameThreshold = *c.SSH.DistinctUsernameThreshold
-	}
 	ssh.ExcludedUsernames = c.SSH.ExcludedUsernames
 	for _, value := range c.SSH.TrustedCIDRs {
 		prefix, err := netip.ParsePrefix(value)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("parse trusted CIDR %q: %w", value, err)
+			return nil, nil, fmt.Errorf("parse trusted CIDR %q: %w", value, err)
 		}
 		ssh.TrustedNetworks = append(ssh.TrustedNetworks, prefix)
 	}
 	sshClassifier, err := classifier.NewSSHClassifier(ssh)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
 	http := classifier.DefaultHTTPConfig()
@@ -141,7 +125,7 @@ func (c config) classifiers() (*classifier.SSHClassifier, *classifier.HTTPClassi
 	}
 	httpClassifier, err := classifier.NewHTTPClassifier(http)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
-	return sshClassifier, httpClassifier, ssh.Window, nil
+	return sshClassifier, httpClassifier, nil
 }

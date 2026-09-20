@@ -11,9 +11,6 @@ func TestLoadConfigAndBuildClassifiers(t *testing.T) {
 		"database_path":"state.db",
 		"adapters":[{"id":"nginx","socket_path":"/ipc/nginx/adapter.sock"}],
 		"ssh":{
-			"window_seconds":900,
-			"pair_threshold":6,
-			"distinct_username_threshold":6,
 			"excluded_usernames":["deploy"],
 			"trusted_cidrs":["192.0.2.0/24"]
 		},
@@ -27,11 +24,11 @@ func TestLoadConfigAndBuildClassifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ssh, http, window, err := configuration.classifiers()
+	ssh, http, err := configuration.classifiers()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ssh == nil || http == nil || window.Seconds() != 900 {
+	if ssh == nil || http == nil {
 		t.Fatal("config did not produce classifiers")
 	}
 }
@@ -57,17 +54,17 @@ func TestLoadConfigRejectsUnknownAndDuplicateAdapters(t *testing.T) {
 		t.Fatal("config accepted duplicate adapter IDs")
 	}
 
-	invalidThreshold := writeConfig(t, `{
+	invalidCIDR := writeConfig(t, `{
 		"database_path":"state.db",
 		"adapters":[{"id":"one","socket_path":"/ipc/one.sock"}],
-		"ssh":{"pair_threshold":-1}
+		"ssh":{"trusted_cidrs":["not-a-cidr"]}
 	}`)
-	configuration, err := loadConfig(invalidThreshold)
+	configuration, err := loadConfig(invalidCIDR)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := configuration.classifiers(); err == nil {
-		t.Fatal("config accepted a negative SSH threshold")
+	if _, _, err := configuration.classifiers(); err == nil {
+		t.Fatal("config accepted an invalid SSH CIDR")
 	}
 
 	relativeSocket := writeConfig(t, `{

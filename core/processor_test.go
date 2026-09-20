@@ -15,7 +15,7 @@ import (
 	"github.com/gasserp/probing/store"
 )
 
-func TestProcessorRestoresSSHWindowAndPromotesAtomically(t *testing.T) {
+func TestProcessorPromotesEverySSHAttemptAcrossRestarts(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.db")
 	state, err := store.Open(path)
@@ -58,9 +58,6 @@ func TestProcessorRestoresSSHWindowAndPromotesAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := processor.RestoreSSH(ctx, start, 100); err != nil {
-		t.Fatal(err)
-	}
 	replayed := sshObservation(4, start.Add(4*time.Minute))
 	replayed.Cursor = "cursor-4-replayed"
 	if err := processor.Process(ctx, "openssh", replayed); err != nil {
@@ -91,7 +88,7 @@ func TestProcessorRestoresSSHWindowAndPromotesAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(batch.Payload.Records) != 1 || batch.Payload.Records[0].Count != 6 {
-		t.Fatalf("restored threshold batch records = %#v", batch.Payload.Records)
+		t.Fatalf("promoted batch records = %#v", batch.Payload.Records)
 	}
 }
 
