@@ -32,6 +32,14 @@ function renderList(id, values) {
   if (!values.length) addText(list, "li", "No accepted values", "empty-row");
 }
 
+function hourTickStep(maxHoursBack) {
+  const steps = [1, 2, 3, 6, 12, 24, 48, 72, 168];
+  for (const step of steps) {
+    if (Math.ceil(maxHoursBack / step) <= 6) return step;
+  }
+  return steps[steps.length - 1];
+}
+
 function axisStep(maxValue) {
   let step = 10;
   while (maxValue / step > 5) step *= 10;
@@ -108,13 +116,13 @@ function renderChart(periods) {
   polyline.setAttribute("points", pointString);
   svg.appendChild(polyline);
 
-  const tickCount = Math.min(6, values.length);
-  for (let i = 0; i < tickCount; i += 1) {
-    const index = tickCount === 1 ? values.length - 1 : Math.round((i * (values.length - 1)) / (tickCount - 1));
+  const maxHoursBack = values.length - 1;
+  const hourStep = hourTickStep(maxHoursBack);
+  for (let hoursBack = 0; hoursBack <= maxHoursBack; hoursBack += hourStep) {
+    const index = maxHoursBack - hoursBack;
     const x = values.length === 1
       ? (plotLeft + plotRight) / 2
       : plotLeft + index * ((plotRight - plotLeft) / (values.length - 1));
-    const hoursBack = values.length - 1 - index;
     const xLabel = document.createElementNS(namespace, "text");
     xLabel.setAttribute("x", x.toFixed(2));
     xLabel.setAttribute("y", "213");
