@@ -79,12 +79,48 @@ func TestHTTPRejectsAbsoluteFormRequestTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = classifier.Classify(HTTPRequest{
+	decision, err := classifier.Classify(HTTPRequest{
 		EventID:       "proxy:1",
 		RequestTarget: "http:example.test/../etc/passwd",
 		Status:        404,
 	})
-	if err == nil {
-		t.Fatal("absolute-form request target was accepted")
+	if err != nil {
+		t.Fatalf("unexpected error for absolute-form request target: %v", err)
+	}
+	if decision.Eligible {
+		t.Fatal("absolute-form request target was unexpectedly eligible")
+	}
+}
+
+func TestHTTPClassifiesMalformedRequestsAsIneligible(t *testing.T) {
+	classifier, err := NewHTTPClassifier(DefaultHTTPConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test case 1: Request target not starting with "/"
+	decision, err := classifier.Classify(HTTPRequest{
+		EventID:       "nginx:1",
+		RequestTarget: "CONNECT example.com:443",
+		Status:        404,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for malformed request target: %v", err)
+	}
+	if decision.Eligible {
+		t.Fatal("request with non-origin-form target was unexpectedly eligible")
+	}
+
+	// Test case 2: Empty request target after stripping (which also fails origin-form check)
+	decision, err = classifier.Classify(HTTPRequest{
+		EventID:       "nginx:2",
+		RequestTarget: "",
+		Status:        404,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for empty request target: %v", err)
+	}
+	if decision.Eligible {
+		t.Fatal("request with empty target was unexpectedly eligible")
 	}
 }

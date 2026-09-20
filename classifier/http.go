@@ -97,16 +97,16 @@ func (c *HTTPClassifier) Classify(request HTTPRequest) (HTTPDecision, error) {
 		return HTTPDecision{}, nil
 	}
 	if !strings.HasPrefix(request.RequestTarget, "/") {
-		return HTTPDecision{}, errors.New("HTTP request target must use origin-form")
+		return HTTPDecision{}, nil
 	}
 
 	path := stripQueryAndFragment(request.RequestTarget)
 	if path == "" || len(path) > c.config.MaxPathBytes || !utf8.ValidString(path) {
-		return HTTPDecision{}, errors.New("HTTP path is empty, oversized, or invalid UTF-8")
+		return HTTPDecision{}, nil
 	}
 	for _, r := range path {
 		if r < 0x20 || r == 0x7f {
-			return HTTPDecision{}, errors.New("HTTP path contains a control character")
+			return HTTPDecision{}, nil
 		}
 	}
 
