@@ -72,26 +72,6 @@ func (p *Processor) Checkpoint(ctx context.Context, adapterID, cursor string) er
 	return nil
 }
 
-func (p *Processor) RestoreSSH(ctx context.Context, since time.Time, limit int) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.poisoned != nil {
-		return fmt.Errorf("%w: %v", ErrPoisoned, p.poisoned)
-	}
-	failures, err := p.store.SSHFailuresSince(ctx, since, limit)
-	if err != nil {
-		p.poisoned = err
-		return err
-	}
-	for _, failure := range failures {
-		if _, err := p.ssh.Process(failure); err != nil {
-			p.poisoned = err
-			return fmt.Errorf("restore SSH classifier state: %w", err)
-		}
-	}
-	return nil
-}
-
 func (p *Processor) processSSH(
 	ctx context.Context,
 	adapterID string,
@@ -117,33 +97,22 @@ func (p *Processor) processSSH(
 		SourceIP:   sourceIP,
 		Username:   observation.SSH.Username,
 	}
-	ignored, err := p.ssh.ShouldIgnore(failure)
+	decision, err := p.ssh.Classify(failure)
 	if err != nil {
 		return err
 	}
-	if ignored {
+	if !decision.Eligible {
 		if err := p.store.CommitCursor(ctx, adapterID, observation.Cursor); err != nil {
 			p.poisoned = err
 			return err
 		}
 		return nil
 	}
-	promotions, err := p.ssh.Process(failure)
-	if err != nil {
-		return err
-	}
-	updates := make([]store.PromotionUpdate, 0, len(promotions))
-	for _, promotion := range promotions {
-		updates = append(updates, store.PromotionUpdate{
-			EventID: promotion.Observation.EventID,
-			RuleIDs: promotion.RuleIDs,
-		})
-	}
 	if _, err := p.store.CommitObservation(
 		ctx,
 		adapterID,
 		store.ClassifiedObservation{Observation: observation},
-		updates...,
+		store.PromotionUpdate{EventID: observation.EventID, RuleIDs: decision.RuleIDs},
 	); err != nil {
 		p.poisoned = err
 		return err

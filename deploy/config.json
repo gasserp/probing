@@ -11,9 +11,6 @@
     }
   ],
   "ssh": {
-    "window_seconds": 900,
-    "pair_threshold": 6,
-    "distinct_username_threshold": 6,
     "excluded_usernames": [],
     "trusted_cidrs": []
   },
@@ -27,7 +24,7 @@
     "source_epoch_path": "/data/source-epoch",
     "private_key_path": "/data/source-private-key.pem",
     "key_id": "gasserp-azure-weu-01-ed25519-1",
-    "classifier_version": "probing-classifier-v1",
+    "classifier_version": "probing-classifier-v2",
     "outbox_directory": "/outbox"
   }
 }

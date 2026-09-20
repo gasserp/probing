@@ -214,3 +214,15 @@ func containsSensitiveFileProbe(path string) bool {
 	}
 	return false
 }
+
+func insertSortedUnique(values []string, value string) []string {
+	index, found := slices.BinarySearch(values, value)
+	if found {
+		return values
+	}
+	result := make([]string, len(values)+1)
+	copy(result, values[:index])
+	result[index] = value
+	copy(result[index+1:], values[index:])
+	return result
+}
