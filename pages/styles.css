@@ -296,14 +296,6 @@ li::before { color: var(--text-faint); content: counter(entries, decimal-leading
 li span { color: var(--signal); white-space: nowrap; }
 li.empty-row { display: block; color: var(--text-faint); }
 li.empty-row::before { content: none; }
-.table-wrap { margin-top: 1.1rem; overflow-x: auto; }
-table { width: 100%; min-width: 35rem; border-collapse: collapse; font-size: .75rem; }
-th, td { padding: .85rem .75rem; border-bottom: 1px solid var(--line-subtle); text-align: left; }
-th { color: var(--text-faint); font-size: .64rem; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; }
-td { color: #c8d5e5; }
-td.empty-cell { color: var(--text-faint); text-align: left; }
-td:last-child, th:last-child { text-align: right; }
-tbody tr:hover { background: rgb(110 231 242 / 4%); }
 
 @media (max-width: 52rem) {
   .masthead-content { display: block; }
