@@ -101,10 +101,16 @@ function renderChart(periods) {
     svg.appendChild(tickLabel);
   }
 
+  const timestamps = values.map((item) => new Date(item.end).getTime());
+  const maxTime = timestamps[timestamps.length - 1];
+  const totalHoursSpan = Math.round((maxTime - timestamps[0]) / 3600000);
+  const xForHoursBack = (hoursBack) => totalHoursSpan === 0
+    ? (plotLeft + plotRight) / 2
+    : plotRight - (hoursBack / totalHoursSpan) * (plotRight - plotLeft);
+
   const points = values.map((item, index) => {
-    const x = values.length === 1
-      ? (plotLeft + plotRight) / 2
-      : plotLeft + index * ((plotRight - plotLeft) / (values.length - 1));
+    const hoursBack = (maxTime - timestamps[index]) / 3600000;
+    const x = xForHoursBack(hoursBack);
     const y = plotBottom - (Number(item.total || 0) / niceMax) * (plotBottom - plotTop);
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
@@ -116,17 +122,13 @@ function renderChart(periods) {
   polyline.setAttribute("points", pointString);
   svg.appendChild(polyline);
 
-  const maxHoursBack = values.length - 1;
-  const hourStep = hourTickStep(maxHoursBack);
-  for (let hoursBack = 0; hoursBack <= maxHoursBack; hoursBack += hourStep) {
-    const index = maxHoursBack - hoursBack;
-    const x = values.length === 1
-      ? (plotLeft + plotRight) / 2
-      : plotLeft + index * ((plotRight - plotLeft) / (values.length - 1));
+  const hourStep = hourTickStep(totalHoursSpan);
+  for (let hoursBack = 0; hoursBack <= totalHoursSpan; hoursBack += hourStep) {
+    const x = xForHoursBack(hoursBack);
     const xLabel = document.createElementNS(namespace, "text");
     xLabel.setAttribute("x", x.toFixed(2));
     xLabel.setAttribute("y", "213");
-    xLabel.setAttribute("text-anchor", index === values.length - 1 ? "end" : index === 0 ? "start" : "middle");
+    xLabel.setAttribute("text-anchor", hoursBack === 0 ? "end" : hoursBack + hourStep > totalHoursSpan ? "start" : "middle");
     xLabel.textContent = hoursBack === 0 ? "now" : `-${hoursBack}h`;
     svg.appendChild(xLabel);
   }
