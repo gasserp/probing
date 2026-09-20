@@ -26,10 +26,16 @@ function renderList(id, values) {
   for (const item of values.slice(0, 20)) {
     const row = document.createElement("li");
     row.appendChild(document.createTextNode(item.value));
-    addText(row, "span", ` - ${number.format(item.count)}`);
+    addText(row, "span", number.format(item.count));
     list.appendChild(row);
   }
   if (!values.length) addText(list, "li", "No accepted values", "empty-row");
+}
+
+function axisStep(maxValue) {
+  let step = 10;
+  while (maxValue / step > 5) step *= 10;
+  return step;
 }
 
 function renderChart(periods) {
@@ -62,32 +68,67 @@ function renderChart(periods) {
   gradient.append(start, end);
   defs.appendChild(gradient);
   svg.appendChild(defs);
+
+  const plotLeft = 54;
+  const plotRight = 1000;
+  const plotTop = 10;
+  const plotBottom = 200;
   const maximum = Math.max(1, ...values.map((item) => Number(item.total || 0)));
-  for (const y of [20, 110, 200]) {
+  const step = axisStep(maximum);
+  const niceMax = Math.ceil(maximum / step) * step;
+
+  for (let tick = 0; tick <= niceMax; tick += step) {
+    const y = plotBottom - (tick / niceMax) * (plotBottom - plotTop);
     const line = document.createElementNS(namespace, "line");
-    line.setAttribute("x1", "0");
-    line.setAttribute("x2", "1000");
-    line.setAttribute("y1", String(y));
-    line.setAttribute("y2", String(y));
+    line.setAttribute("x1", String(plotLeft));
+    line.setAttribute("x2", String(plotRight));
+    line.setAttribute("y1", y.toFixed(2));
+    line.setAttribute("y2", y.toFixed(2));
     svg.appendChild(line);
+    const tickLabel = document.createElementNS(namespace, "text");
+    tickLabel.setAttribute("x", String(plotLeft - 6));
+    tickLabel.setAttribute("y", (y + 3).toFixed(2));
+    tickLabel.setAttribute("text-anchor", "end");
+    tickLabel.textContent = number.format(tick);
+    svg.appendChild(tickLabel);
   }
+
   const points = values.map((item, index) => {
-    const x = values.length === 1 ? 500 : index * (1000 / (values.length - 1));
-    const y = 200 - (Number(item.total || 0) / maximum) * 180;
+    const x = values.length === 1
+      ? (plotLeft + plotRight) / 2
+      : plotLeft + index * ((plotRight - plotLeft) / (values.length - 1));
+    const y = plotBottom - (Number(item.total || 0) / niceMax) * (plotBottom - plotTop);
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
   const polyline = document.createElementNS(namespace, "polyline");
   const pointString = points.join(" ");
   const area = document.createElementNS(namespace, "polygon");
-  area.setAttribute("points", `0,200 ${pointString} 1000,200`);
+  area.setAttribute("points", `${plotLeft},${plotBottom} ${pointString} ${plotRight},${plotBottom}`);
   svg.appendChild(area);
   polyline.setAttribute("points", pointString);
   svg.appendChild(polyline);
-  const label = document.createElementNS(namespace, "text");
-  label.setAttribute("x", "4");
-  label.setAttribute("y", "235");
-  label.textContent = `${values[0].start} to ${values[values.length - 1].end} UTC`;
-  svg.appendChild(label);
+
+  const tickCount = Math.min(6, values.length);
+  for (let i = 0; i < tickCount; i += 1) {
+    const index = tickCount === 1 ? values.length - 1 : Math.round((i * (values.length - 1)) / (tickCount - 1));
+    const x = values.length === 1
+      ? (plotLeft + plotRight) / 2
+      : plotLeft + index * ((plotRight - plotLeft) / (values.length - 1));
+    const hoursBack = values.length - 1 - index;
+    const xLabel = document.createElementNS(namespace, "text");
+    xLabel.setAttribute("x", x.toFixed(2));
+    xLabel.setAttribute("y", "213");
+    xLabel.setAttribute("text-anchor", index === values.length - 1 ? "end" : index === 0 ? "start" : "middle");
+    xLabel.textContent = hoursBack === 0 ? "now" : `-${hoursBack}h`;
+    svg.appendChild(xLabel);
+  }
+
+  const range = document.createElementNS(namespace, "text");
+  range.setAttribute("x", String(plotLeft));
+  range.setAttribute("y", "233");
+  range.textContent = `${values[0].start} to ${values[values.length - 1].end} UTC`;
+  svg.appendChild(range);
+
   container.appendChild(svg);
 }
 
@@ -97,15 +138,6 @@ function renderSources(periods) {
     (item) => `${item.source_id}\u0000${item.source_epoch}`,
   );
   document.getElementById("source-count").textContent = number.format(sources.length);
-  const body = document.getElementById("sources");
-  for (const source of sources) {
-    const [sourceID, sourceEpoch] = source.value.split("\u0000");
-    const row = document.createElement("tr");
-    addText(row, "td", sourceID);
-    addText(row, "td", sourceEpoch);
-    addText(row, "td", number.format(source.count));
-    body.appendChild(row);
-  }
 }
 
 function classifyIPVersion(ip) {
@@ -149,16 +181,10 @@ function renderUnavailableDashboard() {
   document.getElementById("usernames").replaceChildren();
   document.getElementById("paths").replaceChildren();
   document.getElementById("source-ips").replaceChildren();
-  document.getElementById("sources").replaceChildren();
 
   renderChart([]);
   renderIPVersions([]);
   for (const id of ["usernames", "paths", "source-ips"]) renderList(id, []);
-
-  const row = document.createElement("tr");
-  const cell = addText(row, "td", "Rollup data unavailable", "empty-cell");
-  cell.colSpan = 3;
-  document.getElementById("sources").appendChild(row);
 }
 
 async function load() {
