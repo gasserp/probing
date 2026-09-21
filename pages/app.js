@@ -32,10 +32,29 @@ function renderList(id, values) {
   if (!values.length) addText(list, "li", "No accepted values", "empty-row");
 }
 
-function hourTickStep(maxHoursBack) {
+const CHART_HEIGHT = 240;
+const CHART_MAX_HOURS = 168;
+const CHART_TICK_SPACING = 56;
+const CHART_WINDOWS = [
+  { maxWidth: 360, hours: 24 },
+  { maxWidth: 560, hours: 48 },
+];
+
+let chartPeriods = [];
+let chartWidth = 0;
+let chartResizeTimer = 0;
+
+function chartWindowHours(width) {
+  for (const option of CHART_WINDOWS) {
+    if (width <= option.maxWidth) return option.hours;
+  }
+  return CHART_MAX_HOURS;
+}
+
+function hourTickStep(maxHoursBack, maxTicks) {
   const steps = [1, 2, 3, 6, 12, 24, 48, 72, 168];
   for (const step of steps) {
-    if (Math.ceil(maxHoursBack / step) <= 6) return step;
+    if (Math.ceil(maxHoursBack / step) <= maxTicks) return step;
   }
   return steps[steps.length - 1];
 }
@@ -46,9 +65,35 @@ function axisStep(maxValue) {
   return step;
 }
 
+function rangeLabel(values, compact) {
+  const start = String(values[0].start);
+  const end = String(values[values.length - 1].end);
+  if (!compact || start.length < 14 || end.length < 14) return `${start} to ${end} UTC`;
+  return `${start.slice(0, 13)}Z to ${end.slice(0, 13)}Z UTC`;
+}
+
+function windowedPeriods(periods, windowHours) {
+  const ends = periods.map((period) => new Date(period.end).getTime());
+  const latest = ends[ends.length - 1];
+  if (!Number.isFinite(latest)) return periods.slice(-windowHours);
+  const cutoff = latest - windowHours * 3600000;
+  const recent = periods.filter((period, index) => Number.isFinite(ends[index]) && ends[index] > cutoff);
+  return recent.length < 2 ? periods.slice(-2) : recent;
+}
+
 function renderChart(periods) {
-  const values = periods.slice(-168);
+  chartPeriods = periods;
   const container = document.getElementById("chart");
+  container.replaceChildren();
+  container.classList.remove("is-empty");
+  const measured = Math.round(container.clientWidth);
+  const width = measured > 0 ? Math.max(240, measured) : 600;
+  chartWidth = width;
+  const windowHours = chartWindowHours(width);
+  const values = windowedPeriods(periods, windowHours);
+  const windowTag = document.getElementById("chart-window");
+  if (windowTag) windowTag.textContent = `${windowHours}h window`;
+  container.setAttribute("aria-label", `Hourly observation counts for the last ${windowHours} hours`);
   if (!values.length) {
     container.classList.add("is-empty");
     addText(container, "p", "No accepted hourly observations", "empty-state");
@@ -56,8 +101,7 @@ function renderChart(periods) {
   }
   const namespace = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(namespace, "svg");
-  svg.setAttribute("viewBox", "0 0 1000 240");
-  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("viewBox", `0 0 ${width} ${CHART_HEIGHT}`);
   const defs = document.createElementNS(namespace, "defs");
   const gradient = document.createElementNS(namespace, "linearGradient");
   gradient.setAttribute("id", "chart-fill");
@@ -77,24 +121,25 @@ function renderChart(periods) {
   defs.appendChild(gradient);
   svg.appendChild(defs);
 
-  const plotLeft = 54;
-  const plotRight = 1000;
-  const plotTop = 10;
-  const plotBottom = 200;
   const maximum = Math.max(1, ...values.map((item) => Number(item.total || 0)));
   const step = axisStep(maximum);
   const niceMax = Math.ceil(maximum / step) * step;
 
+  const plotLeft = Math.min(84, Math.max(34, number.format(niceMax).length * 6.2 + 12));
+  const plotRight = width;
+  const plotTop = 10;
+  const plotBottom = CHART_HEIGHT - 40;
+
   for (let tick = 0; tick <= niceMax; tick += step) {
     const y = plotBottom - (tick / niceMax) * (plotBottom - plotTop);
     const line = document.createElementNS(namespace, "line");
-    line.setAttribute("x1", String(plotLeft));
+    line.setAttribute("x1", plotLeft.toFixed(2));
     line.setAttribute("x2", String(plotRight));
     line.setAttribute("y1", y.toFixed(2));
     line.setAttribute("y2", y.toFixed(2));
     svg.appendChild(line);
     const tickLabel = document.createElementNS(namespace, "text");
-    tickLabel.setAttribute("x", String(plotLeft - 6));
+    tickLabel.setAttribute("x", (plotLeft - 6).toFixed(2));
     tickLabel.setAttribute("y", (y + 3).toFixed(2));
     tickLabel.setAttribute("text-anchor", "end");
     tickLabel.textContent = number.format(tick);
@@ -117,30 +162,44 @@ function renderChart(periods) {
   const polyline = document.createElementNS(namespace, "polyline");
   const pointString = points.join(" ");
   const area = document.createElementNS(namespace, "polygon");
-  area.setAttribute("points", `${plotLeft},${plotBottom} ${pointString} ${plotRight},${plotBottom}`);
+  area.setAttribute("points", `${plotLeft.toFixed(2)},${plotBottom} ${pointString} ${plotRight},${plotBottom}`);
   svg.appendChild(area);
   polyline.setAttribute("points", pointString);
   svg.appendChild(polyline);
 
-  const hourStep = hourTickStep(totalHoursSpan);
+  const maxTicks = Math.min(6, Math.max(2, Math.floor((plotRight - plotLeft) / CHART_TICK_SPACING)));
+  const hourStep = hourTickStep(totalHoursSpan, maxTicks);
   for (let hoursBack = 0; hoursBack <= totalHoursSpan; hoursBack += hourStep) {
     const x = xForHoursBack(hoursBack);
     const xLabel = document.createElementNS(namespace, "text");
     xLabel.setAttribute("x", x.toFixed(2));
-    xLabel.setAttribute("y", "213");
+    xLabel.setAttribute("y", String(plotBottom + 13));
     xLabel.setAttribute("text-anchor", hoursBack === 0 ? "end" : hoursBack + hourStep > totalHoursSpan ? "start" : "middle");
     xLabel.textContent = hoursBack === 0 ? "now" : `-${hoursBack}h`;
     svg.appendChild(xLabel);
   }
 
   const range = document.createElementNS(namespace, "text");
-  range.setAttribute("x", String(plotLeft));
-  range.setAttribute("y", "233");
-  range.textContent = `${values[0].start} to ${values[values.length - 1].end} UTC`;
+  range.setAttribute("x", plotLeft.toFixed(2));
+  range.setAttribute("y", String(CHART_HEIGHT - 7));
+  range.textContent = rangeLabel(values, width < 520);
   svg.appendChild(range);
 
   container.appendChild(svg);
 }
+
+function scheduleChartResize() {
+  window.clearTimeout(chartResizeTimer);
+  chartResizeTimer = window.setTimeout(() => {
+    const container = document.getElementById("chart");
+    if (!container) return;
+    const measured = Math.round(container.clientWidth);
+    if (measured > 0 && Math.abs(measured - chartWidth) >= 8) renderChart(chartPeriods);
+  }, 150);
+}
+
+window.addEventListener("resize", scheduleChartResize);
+window.addEventListener("orientationchange", scheduleChartResize);
 
 function renderSources(periods) {
   const sources = aggregate(
