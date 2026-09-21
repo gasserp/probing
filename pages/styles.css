@@ -238,8 +238,8 @@ h2 {
   white-space: nowrap;
 }
 .panel .subtle { margin: .55rem 0 0; font-size: .75rem; line-height: 1.5; }
-.chart { min-height: 16.5rem; margin-top: 1.25rem; overflow-x: auto; }
-.chart svg { display: block; width: 100%; min-width: 35rem; height: 16.5rem; }
+.chart { min-height: 15rem; margin-top: 1.25rem; }
+.chart svg { display: block; width: 100%; height: auto; }
 .chart polygon { fill: url(#chart-fill); }
 .chart polyline { fill: none; stroke: var(--signal); stroke-width: 2.25; vector-effect: non-scaling-stroke; }
 .chart line { stroke: var(--line-subtle); stroke-dasharray: 2 5; }
@@ -315,6 +315,5 @@ li.empty-row::before { content: none; }
   .summary { grid-template-columns: 1fr; }
   .panel, .metric-card { padding: 1rem; }
   .panel::before, .metric-card::before { left: 1rem; }
-  .chart svg { min-width: 31rem; }
   footer { grid-template-columns: 1fr; gap: .65rem; }
 }
