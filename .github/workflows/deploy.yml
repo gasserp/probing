@@ -1,0 +1,130 @@
+name: deploy
+
+# Redeploys the collector VM by re-running the authoritative, idempotent
+# infra/migrate-v2.sh on the box through Azure Run Command (host SSH is
+# disabled by design). The "version" of the artefacts is a git ref: the VM
+# checks it out and rebuilds the collector, uploader, and adapter images from
+# source. Run it from the Actions tab; leave "ref" blank to deploy the ref
+# pinned in deploy/VERSION (default: main / latest), or type a branch, tag, or
+# full commit SHA to deploy a specific version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build & deploy (branch, tag, or full SHA). Blank = deploy/VERSION."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ vars.PROBING_VM_NAME || 'probing-collector-01' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      RESOURCE_GROUP: ${{ vars.PROBING_RESOURCE_GROUP || 'probing-collector' }}
+      VM_NAME: ${{ vars.PROBING_VM_NAME || 'probing-collector-01' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve deploy ref
+        id: ref
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          ref="$INPUT_REF"
+          if [ -z "$ref" ]; then
+            ref="$(tr -d '[:space:]' < deploy/VERSION)"
+            echo "No ref input supplied; using deploy/VERSION -> $ref"
+          else
+            echo "Using workflow input ref -> $ref"
+          fi
+          # Mirror the ref policy migrate-v2.sh enforces so we fail early with a
+          # clear message instead of deep inside Run Command.
+          if ! printf '%s' "$ref" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$'; then
+            echo "::error::Invalid ref '$ref' (must match [A-Za-z0-9][A-Za-z0-9._/-]{0,127})"
+            exit 1
+          fi
+          case "$ref" in
+            *..*|*/../*|*/) echo "::error::Invalid ref path '$ref'"; exit 1 ;;
+          esac
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Validate required configuration
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          PROBING_STORAGE_ACCOUNT: ${{ vars.PROBING_STORAGE_ACCOUNT }}
+          PROBING_STORAGE_CONTAINER: ${{ vars.PROBING_STORAGE_CONTAINER }}
+        run: |
+          set -euo pipefail
+          missing=
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+                      PROBING_STORAGE_ACCOUNT PROBING_STORAGE_CONTAINER; do
+            eval "value=\${$name:-}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository variables:$missing (see infra/README.md)"
+            exit 1
+          fi
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure the VM is running
+        # No-op when already running; starts it if Spot eviction deallocated it.
+        run: az vm start --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --only-show-errors
+
+      - name: Redeploy via Run Command
+        id: run
+        env:
+          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+          PROBING_STORAGE_ACCOUNT: ${{ vars.PROBING_STORAGE_ACCOUNT }}
+          PROBING_STORAGE_CONTAINER: ${{ vars.PROBING_STORAGE_CONTAINER }}
+        run: |
+          set -euo pipefail
+          echo "Deploying ref '$DEPLOY_REF' to $VM_NAME (resource group $RESOURCE_GROUP)"
+          message="$(az vm run-command invoke \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$VM_NAME" \
+            --command-id RunShellScript \
+            --scripts @infra/migrate-v2.sh \
+            --parameters \
+              storage-account="$PROBING_STORAGE_ACCOUNT" \
+              storage-container="$PROBING_STORAGE_CONTAINER" \
+              repository-ref="$DEPLOY_REF" \
+            --query 'value[0].message' -o tsv)"
+          echo "----- Run Command output -----"
+          printf '%s\n' "$message"
+          echo "------------------------------"
+          # az vm run-command invoke returns 0 as long as the command was
+          # delivered, regardless of the script's own exit status, so gate on
+          # the sentinel migrate-v2.sh prints only after every check passes.
+          if ! printf '%s' "$message" | grep -Eq 'probing migration v[0-9]+ complete at'; then
+            echo "::error::Run Command did not report a successful migration"
+            exit 1
+          fi
+          sha="$(printf '%s' "$message" | sed -n 's/.*complete at \([0-9a-f]\{7,40\}\).*/\1/p' | tail -n1)"
+          {
+            echo "### Collector VM redeploy complete"
+            echo ""
+            echo "- Requested ref: \`$DEPLOY_REF\`"
+            echo "- Deployed commit: \`${sha:-unknown}\`"
+            echo "- VM: \`$VM_NAME\` (resource group \`$RESOURCE_GROUP\`)"
+          } >> "$GITHUB_STEP_SUMMARY"

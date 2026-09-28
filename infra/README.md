@@ -147,6 +147,50 @@ az vm run-command invoke \
   --scripts 'cat /var/lib/probing/source-epoch; cat /var/lib/probing/source-public-key.pem'
 ```
 
+## Redeploying from GitHub Actions
+
+The `deploy` workflow (`.github/workflows/deploy.yml`) redeploys this VM without
+a human running `az`. It re-runs the same authoritative `infra/migrate-v2.sh`
+through Azure Run Command, so it inherits every safety check and preserves the
+key, epoch, SQLite, and outbox state. Run it from the repository's **Actions →
+deploy → Run workflow** and either leave `ref` blank — deploying the ref pinned
+in [`deploy/VERSION`](../deploy/VERSION) (default `main`, i.e. latest) — or type
+a branch, tag, or full commit SHA to deploy a specific artefact version. The VM
+checks out that ref and rebuilds the collector, uploader, and adapter images
+from source, so the git ref *is* the artefact version. To change the default
+deployed version, edit `deploy/VERSION` in a PR (pin it to a reviewed full SHA
+for production).
+
+One-time setup in the **`gasserp/probing`** repository (distinct from the
+`probing-data` variables above):
+
+1. Deploy `infra/main.bicep` so the deploy identity, its custom
+   `probing-collector-deployer` role (start + Run Command on this VM only), and
+   its GitHub federation exist. The default federation subject is
+   `repo:gasserp/probing:environment:production`; override it with the
+   `githubDeploySubject` parameter if your tenant issues a different `sub`
+   claim (compare the working `probing-data` federated credential in
+   `modules/collector.bicep`).
+2. Create a GitHub **Environment** named `production` in this repo (Settings →
+   Environments). Add required reviewers there if you want an approval gate
+   before each redeploy. The environment name must match `githubDeploySubject`.
+3. Set these **repository variables** (Settings → Secrets and variables →
+   Actions → Variables) from the Bicep outputs:
+
+   | Variable | Source output |
+   |---|---|
+   | `AZURE_CLIENT_ID` | `githubDeployClientId` (the deploy identity — **not** `githubClientId`) |
+   | `AZURE_TENANT_ID` | `githubTenantId` |
+   | `AZURE_SUBSCRIPTION_ID` | `githubSubscriptionId` |
+   | `PROBING_STORAGE_ACCOUNT` | `storageAccountName` |
+   | `PROBING_STORAGE_CONTAINER` | `storageContainerName` |
+   | `PROBING_RESOURCE_GROUP` | `resourceGroupName` (optional; defaults to `probing-collector`) |
+   | `PROBING_VM_NAME` | the VM name (optional; defaults to `probing-collector-01`) |
+
+The workflow logs in with OIDC (no stored secret), starts the VM if Spot
+eviction deallocated it, runs the migration, and fails unless the script prints
+its completion sentinel.
+
 Standard_LRS capacity, Blob operations, public endpoint egress, the VM, IPv6
 address, and the Spot-restarter Logic App can all incur charges. The 30-day
 lifecycle policy is a cost ceiling, not an archival promise.

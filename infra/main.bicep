@@ -24,6 +24,8 @@ param maxSpotPrice string = '0.02'
 param includeCloudInit bool = true
 @description('Git ref or commit used by the versioned collector migration.')
 param repositoryRef string = 'main'
+@description('GitHub OIDC subject allowed to run the deploy workflow. Defaults to the repo "production" environment; adjust to match the sub claim GitHub issues for this repo (see infra/README.md).')
+param githubDeploySubject string = 'repo:gasserp/probing:environment:production'
 
 var isSpot = computeProfile == 'spot-low-cost'
 var vmSize = isSpot ? 'Standard_A1_v2' : 'Standard_B1s'
@@ -46,6 +48,7 @@ module collector 'modules/collector.bicep' = {
     adminSshPublicKey: adminSshPublicKey
     includeCloudInit: includeCloudInit
     repositoryRef: repositoryRef
+    githubDeploySubject: githubDeploySubject
   }
 }
 
@@ -54,6 +57,7 @@ output publicIPv4 string = collector.outputs.publicIPv4
 output storageAccountName string = collector.outputs.storageAccountName
 output storageContainerName string = collector.outputs.storageContainerName
 output githubClientId string = collector.outputs.githubClientId
+output githubDeployClientId string = collector.outputs.githubDeployClientId
 output githubTenantId string = tenant().tenantId
 output githubSubscriptionId string = subscription().subscriptionId
 output resourceGroupName string = resourceGroup.name
