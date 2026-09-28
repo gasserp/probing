@@ -6,6 +6,8 @@ param maxSpotPrice string
 param dualStack bool
 param includeCloudInit bool
 param repositoryRef string
+@description('GitHub OIDC subject allowed to redeploy the VM (the deploy workflow). Must match the sub claim GitHub issues for this repo; see infra/README.md.')
+param githubDeploySubject string
 @secure()
 param adminSshPublicKey string
 
@@ -368,6 +370,62 @@ resource githubBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// Identity assumed by the `deploy` GitHub workflow to redeploy this VM. It is
+// federated to this repository (not probing-data) and, unlike the Spot
+// restarter's Virtual Machine Contributor, is scoped by a custom role to only
+// start the VM and invoke Run Command on it — enough to re-run migrate-v2.sh,
+// nothing more.
+resource githubDeployIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${vmName}-github-deploy'
+  location: location
+}
+
+resource githubDeployFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+  parent: githubDeployIdentity
+  name: 'probing-deploy'
+  properties: {
+    audiences: [
+      'api://AzureADTokenExchange'
+    ]
+    issuer: 'https://token.actions.githubusercontent.com'
+    subject: githubDeploySubject
+  }
+}
+
+resource deployerRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(resourceGroup().id, 'probing-collector-deployer')
+  properties: {
+    roleName: 'probing-collector-deployer'
+    description: 'Start the collector VM and invoke Run Command on it; no other compute management.'
+    type: 'CustomRole'
+    assignableScopes: [
+      resourceGroup().id
+    ]
+    permissions: [
+      {
+        actions: [
+          'Microsoft.Compute/virtualMachines/read'
+          'Microsoft.Compute/virtualMachines/start/action'
+          'Microsoft.Compute/virtualMachines/runCommand/action'
+        ]
+        notActions: []
+        dataActions: []
+        notDataActions: []
+      }
+    ]
+  }
+}
+
+resource githubDeployRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: virtualMachine
+  name: guid(virtualMachine.id, githubDeployIdentity.id, 'probing-collector-deployer')
+  properties: {
+    principalId: githubDeployIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: deployerRole.id
+  }
+}
+
 resource spotRestarter 'Microsoft.Logic/workflows@2019-05-01' = if (isSpot) {
   name: '${vmName}-spot-restarter'
   location: location
@@ -430,3 +488,4 @@ output publicIPv4 string = dualStack ? publicIPv4.properties.ipAddress : ''
 output storageAccountName string = storageAccount.name
 output storageContainerName string = batchContainer.name
 output githubClientId string = githubDataIdentity.properties.clientId
+output githubDeployClientId string = githubDeployIdentity.properties.clientId
