@@ -152,10 +152,14 @@ func insertObservation(
 	}
 
 	var username any
+	var password any
 	var path any
 	var status any
 	if observation.SSH != nil {
 		username = observation.SSH.Username
+		if observation.SSH.Password != "" {
+			password = observation.SSH.Password
+		}
 	}
 	if observation.HTTP != nil {
 		path = input.PublicPath
@@ -171,9 +175,9 @@ func insertObservation(
 		INSERT INTO observations (
 			event_id, event_hash, adapter_id, cursor, kind, observed_at,
 			observed_unix_seconds, observed_nanosecond, source_ip,
-			username, path, http_status,
+			username, password, path, http_status,
 			promoted, rule_ids
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(event_id) DO NOTHING
 	`,
 		observation.EventID,
@@ -186,6 +190,7 @@ func insertObservation(
 		observedAt.Nanosecond(),
 		observation.SourceIP,
 		username,
+		password,
 		path,
 		status,
 		boolToInt(input.Promoted),

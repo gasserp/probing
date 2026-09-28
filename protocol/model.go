@@ -26,6 +26,10 @@ type Observation struct {
 
 type SSHObservation struct {
 	Username string `json:"username"`
+	// Password is the plaintext credential the source attempted, when the
+	// upstream honeypot captures it (e.g. Cowrie). It is omitted for sources
+	// that never expose the attempted secret, such as the OpenSSH journal.
+	Password string `json:"password,omitempty"`
 }
 
 type HTTPObservation struct {
@@ -65,6 +69,7 @@ type BatchRecord struct {
 	Kind            ObservationKind `json:"kind"`
 	SourceIP        string          `json:"source_ip"`
 	Username        string          `json:"username,omitempty"`
+	Password        string          `json:"password,omitempty"`
 	Path            string          `json:"path,omitempty"`
 	Count           uint64          `json:"count"`
 	FirstObservedAt string          `json:"first_observed_at"`

@@ -26,6 +26,7 @@ const (
 	MaxEventIDBytes         = 128
 	MaxCursorBytes          = 1_024
 	MaxUsernameBytes        = 256
+	MaxPasswordBytes        = 256
 	MaxPathBytes            = 2_048
 	MaxRuleIDBytes          = 128
 	MaxKeyIDBytes           = 128
@@ -67,6 +68,9 @@ func ValidateObservation(observation Observation) error {
 		}
 		if !validBoundedText(observation.SSH.Username, MaxUsernameBytes) {
 			return errors.New("SSH username is invalid")
+		}
+		if observation.SSH.Password != "" && !validBoundedText(observation.SSH.Password, MaxPasswordBytes) {
+			return errors.New("SSH password is invalid")
 		}
 	case ObservationHTTPRequest:
 		if observation.HTTP == nil || observation.SSH != nil {
@@ -132,7 +136,7 @@ func ValidateBatchPayload(payload BatchPayload) error {
 		}
 		key := recordSortKey(record)
 		if i > 0 && key <= previousKey {
-			return errors.New("records must be uniquely sorted by kind, source_ip, value, and first_observed_at")
+			return errors.New("records must be uniquely sorted by kind, source_ip, value, password, and first_observed_at")
 		}
 		previousKey = key
 	}
@@ -208,9 +212,12 @@ func validateRecord(record BatchRecord, windowStart, windowEnd time.Time) error 
 		if !validBoundedText(record.Username, MaxUsernameBytes) {
 			return errors.New("username is invalid")
 		}
+		if record.Password != "" && !validBoundedText(record.Password, MaxPasswordBytes) {
+			return errors.New("password is invalid")
+		}
 	case ObservationHTTPRequest:
-		if record.Path == "" || record.Username != "" {
-			return errors.New("HTTP records require path and prohibit username")
+		if record.Path == "" || record.Username != "" || record.Password != "" {
+			return errors.New("HTTP records require path and prohibit username and password")
 		}
 		if !validBoundedText(record.Path, MaxPathBytes) {
 			return errors.New("path is invalid")
@@ -309,5 +316,6 @@ func recordSortKey(record BatchRecord) string {
 		value = record.Path
 	}
 	return string(record.Kind) + "\x00" + record.SourceIP + "\x00" + value + "\x00" +
-		record.FirstObservedAt + "\x00" + strings.Join(record.RuleIDs, "\x1f")
+		record.Password + "\x00" + record.FirstObservedAt + "\x00" +
+		strings.Join(record.RuleIDs, "\x1f")
 }

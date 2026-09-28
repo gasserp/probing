@@ -307,6 +307,72 @@ func TestPrunePeriodsDropsOldHourlyAndTrimsOthers(t *testing.T) {
 	}
 }
 
+func TestApplyPayloadAccumulatesPasswords(t *testing.T) {
+	ledger := Ledger{
+		SchemaVersion: LedgerSchemaVersion,
+		Repository:    "gasserp/probing-data",
+		Sources:       []LedgerSource{},
+		Periods:       map[string]PeriodLedger{},
+	}
+	payload := protocol.BatchPayload{
+		SchemaVersion:     protocol.BatchSchemaVersion,
+		SourceID:          "sensor-one",
+		SourceEpoch:       "5d6079de-20e0-4d4b-b955-40eac8f14df8",
+		Sequence:          "0",
+		CreatedAt:         "2026-09-10T20:00:00Z",
+		ObservationWindow: protocol.TimeRange{Start: "2026-09-10T19:00:00Z", End: "2026-09-10T20:00:00Z"},
+		ClassifierVersion: "classifier-v1",
+		Records: []protocol.BatchRecord{
+			{
+				Kind:            protocol.ObservationSSHAuthFailure,
+				SourceIP:        "2001:db8::1",
+				Username:        "root",
+				Password:        "123456",
+				Count:           3,
+				FirstObservedAt: "2026-09-10T19:01:00Z",
+				LastObservedAt:  "2026-09-10T19:02:00Z",
+				HourlyBuckets:   []protocol.HourlyBucket{{Hour: "2026-09-10T19:00:00Z", Count: 3}},
+				RuleIDs:         []string{"ssh/all-attempts-v1"},
+			},
+			{
+				Kind:            protocol.ObservationSSHAuthFailure,
+				SourceIP:        "2001:db8::1",
+				Username:        "root",
+				Count:           1,
+				FirstObservedAt: "2026-09-10T19:03:00Z",
+				LastObservedAt:  "2026-09-10T19:03:00Z",
+				HourlyBuckets:   []protocol.HourlyBucket{{Hour: "2026-09-10T19:00:00Z", Count: 1}},
+				RuleIDs:         []string{"ssh/all-attempts-v1"},
+			},
+		},
+	}
+	if err := applyPayload(&ledger, payload); err != nil {
+		t.Fatal(err)
+	}
+	period := ledger.Periods["hourly\x002026-09-10T19:00:00Z"]
+	if got := period.Usernames["root"]; got != 4 {
+		t.Fatalf("username count = %d, want 4", got)
+	}
+	if got := period.Passwords["123456"]; got != 3 {
+		t.Fatalf("password count = %d, want 3", got)
+	}
+	if len(period.Passwords) != 1 {
+		t.Fatalf("only the captured password should be tracked, got %d entries", len(period.Passwords))
+	}
+
+	rollup, err := buildRollup(ledger, "hourly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rollup.Periods) != 1 {
+		t.Fatalf("unexpected rollup periods: %#v", rollup.Periods)
+	}
+	passwords := rollup.Periods[0].Passwords
+	if len(passwords) != 1 || passwords[0].Value != "123456" || passwords[0].Count != 3 {
+		t.Fatalf("rollup passwords = %#v", passwords)
+	}
+}
+
 func writeRegistry(t *testing.T, repository string, publicKey ed25519.PublicKey) {
 	t.Helper()
 	path := filepath.Join(repository, "registry", "sources.json")

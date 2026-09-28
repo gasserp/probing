@@ -77,6 +77,7 @@ func validateLedger(ledger Ledger, repository string) error {
 			period.Sources,
 			period.SourceIPs,
 			period.Usernames,
+			period.Passwords,
 			period.Paths,
 		} {
 			if len(values) > MaxPeriodDimensionValues {

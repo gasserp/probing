@@ -3,8 +3,8 @@
 ## Trust boundaries
 
 Adapters, server logs, contributor repositories, batch contents, repository
-paths, commit metadata, diagnostics, usernames, IP addresses, and HTTP paths
-are untrusted. The core agent, protected registry, validator code from the
+paths, commit metadata, diagnostics, usernames, passwords, IP addresses, and
+HTTP paths are untrusted. The core agent, protected registry, validator code from the
 default branch, acceptance ledger, and publication workflow are trusted.
 
 An adapter runs under a distinct OS identity with read-only access to only its
@@ -41,8 +41,11 @@ Only the core identity may access its signing and repository credential.
 
 ## Public-data gate
 
-Exact source IPs, attempted usernames, and eligible paths may be personal or
-sensitive data. Public publishing must remain disabled until an operator
-explicitly accepts the documented legal/privacy obligations and configures
-legitimate identities, trusted networks, route exclusions, retention, and an
-emergency revocation contact.
+Exact source IPs, attempted usernames, attempted passwords, and eligible paths
+may be personal or sensitive data. Attempted passwords warrant particular care:
+credential-stuffing traffic can replay secrets that are valid elsewhere, and a
+misdirected legitimate login can deposit a real password against a sensor.
+Public publishing must remain disabled until an operator explicitly accepts the
+documented legal/privacy obligations and configures legitimate identities,
+trusted networks, route exclusions, retention, and an emergency revocation
+contact.

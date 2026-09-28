@@ -248,12 +248,13 @@ function renderUnavailableDashboard() {
   document.getElementById("chart").replaceChildren();
   document.getElementById("ip-versions").replaceChildren();
   document.getElementById("usernames").replaceChildren();
+  document.getElementById("passwords").replaceChildren();
   document.getElementById("paths").replaceChildren();
   document.getElementById("source-ips").replaceChildren();
 
   renderChart([]);
   renderIPVersions([]);
-  for (const id of ["usernames", "paths", "source-ips"]) renderList(id, []);
+  for (const id of ["usernames", "passwords", "paths", "source-ips"]) renderList(id, []);
 }
 
 async function load() {
@@ -273,6 +274,7 @@ async function load() {
   renderSources(yearlyPeriods);
   renderIPVersions(yearlyPeriods);
   renderList("usernames", aggregate(yearlyPeriods.flatMap((period) => period.usernames || []), (item) => item.value));
+  renderList("passwords", aggregate(yearlyPeriods.flatMap((period) => period.passwords || []), (item) => item.value));
   renderList("paths", aggregate(yearlyPeriods.flatMap((period) => period.paths || []), (item) => item.value));
   renderList("source-ips", aggregate(yearlyPeriods.flatMap((period) => period.source_ips || []), (item) => item.value));
 
