@@ -74,16 +74,16 @@ storageContainer=$(az deployment sub show --subscription "$subscription" \
   --name probing-first-collector \
   --query properties.outputs.storageContainerName.value -o tsv)
 
+# Run Command exports each --parameters entry as an environment variable and
+# rejects hyphenated names, so migrate-v2.sh's --flags are passed by feeding the
+# script to `sh` on stdin instead (the deploy workflow does the same).
 az vm run-command invoke \
   --subscription "$subscription" \
   --resource-group probing-collector \
   --name probing-collector-01 \
   --command-id RunShellScript \
-  --scripts @infra/migrate-v2.sh \
-  --parameters \
-    storage-account="$storageAccount" \
-    storage-container="$storageContainer" \
-    repository-ref="$repositoryRef"
+  --scripts "$(printf '/bin/sh -s -- --storage-account %q --storage-container %q --repository-ref %q <<'\''PROBING_MIGRATE_EOF'\''\n' \
+      "$storageAccount" "$storageContainer" "$repositoryRef"; cat infra/migrate-v2.sh; printf 'PROBING_MIGRATE_EOF\n')"
 ```
 
 Run the same command again to prove idempotency before registering the emitted

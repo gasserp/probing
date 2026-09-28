@@ -100,15 +100,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "Deploying ref '$DEPLOY_REF' to $VM_NAME (resource group $RESOURCE_GROUP)"
+          # Azure Run Command exports each --parameters entry as an environment
+          # variable (and rejects hyphenated names like "storage-account"), so it
+          # cannot pass migrate-v2.sh its --flag-style arguments. Wrap the script
+          # instead: feed it to `sh` on stdin with the flags as real arguments.
+          wrapper="$(mktemp)"
+          {
+            echo "set -eu"
+            printf "/bin/sh -s -- --storage-account %q --storage-container %q --repository-ref %q <<'PROBING_MIGRATE_EOF'\n" \
+              "$PROBING_STORAGE_ACCOUNT" "$PROBING_STORAGE_CONTAINER" "$DEPLOY_REF"
+            cat infra/migrate-v2.sh
+            echo "PROBING_MIGRATE_EOF"
+          } > "$wrapper"
           message="$(az vm run-command invoke \
             --resource-group "$RESOURCE_GROUP" \
             --name "$VM_NAME" \
             --command-id RunShellScript \
-            --scripts @infra/migrate-v2.sh \
-            --parameters \
-              storage-account="$PROBING_STORAGE_ACCOUNT" \
-              storage-container="$PROBING_STORAGE_CONTAINER" \
-              repository-ref="$DEPLOY_REF" \
+            --scripts @"$wrapper" \
             --query 'value[0].message' -o tsv)"
           echo "----- Run Command output -----"
           printf '%s\n' "$message"
