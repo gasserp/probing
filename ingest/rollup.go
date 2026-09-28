@@ -37,8 +37,14 @@ func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
 						Sources:   make(map[string]uint64),
 						SourceIPs: make(map[string]uint64),
 						Usernames: make(map[string]uint64),
+						Passwords: make(map[string]uint64),
 						Paths:     make(map[string]uint64),
 					}
+				}
+				// Periods loaded from a ledger written before passwords were
+				// tracked keep their other dimensions but lack this map.
+				if accumulator.Passwords == nil {
+					accumulator.Passwords = make(map[string]uint64)
 				}
 				if err := addCount(&accumulator.Total, bucket.Count); err != nil {
 					return err
@@ -53,6 +59,11 @@ func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
 				if record.Kind == protocol.ObservationSSHAuthFailure {
 					if err := addMapCount(accumulator.Usernames, &accumulator.UsernamesOverflow, record.Username, bucket.Count); err != nil {
 						return err
+					}
+					if record.Password != "" {
+						if err := addMapCount(accumulator.Passwords, &accumulator.PasswordsOverflow, record.Password, bucket.Count); err != nil {
+							return err
+						}
 					}
 				} else {
 					if err := addMapCount(accumulator.Paths, &accumulator.PathsOverflow, record.Path, bucket.Count); err != nil {
@@ -96,6 +107,7 @@ func prunePeriods(ledger *Ledger, now time.Time) error {
 			{accumulator.Sources, &accumulator.SourcesOverflow},
 			{accumulator.SourceIPs, &accumulator.SourceIPsOverflow},
 			{accumulator.Usernames, &accumulator.UsernamesOverflow},
+			{accumulator.Passwords, &accumulator.PasswordsOverflow},
 			{accumulator.Paths, &accumulator.PathsOverflow},
 		} {
 			if err := trimToTop(dimension.values, dimension.overflow, MaxPublicDimensionValues); err != nil {
@@ -165,6 +177,7 @@ func buildRollup(ledger Ledger, granularity string) (RollupFile, error) {
 			Sources:   topSources(accumulator.Sources),
 			SourceIPs: topValues(accumulator.SourceIPs),
 			Usernames: topValues(accumulator.Usernames),
+			Passwords: topValues(accumulator.Passwords),
 			Paths:     topValues(accumulator.Paths),
 		})
 	}

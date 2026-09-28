@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS observations (
 	observed_nanosecond INTEGER NOT NULL,
 	source_ip TEXT NOT NULL,
 	username TEXT,
+	password TEXT,
 	path TEXT,
 	http_status INTEGER,
 	promoted INTEGER NOT NULL DEFAULT 0 CHECK (promoted IN (0, 1)),
@@ -88,6 +89,48 @@ CREATE TABLE IF NOT EXISTS batches (
 );`
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("initialize state database: %w", err)
+	}
+	if err := s.ensureColumn(ctx, "observations", "password", "TEXT"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureColumn adds a nullable column to an existing table when a database
+// created by an earlier schema version predates it. New databases already have
+// the column from the CREATE TABLE statement, so the add is skipped.
+func (s *Store) ensureColumn(ctx context.Context, table, column, definition string) error {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			dfltValue  sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("scan %s column: %w", table, err)
+		}
+		if name == column {
+			return rows.Close()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate %s columns: %w", table, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close %s columns: %w", table, err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition),
+	); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil
 }

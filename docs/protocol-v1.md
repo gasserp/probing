@@ -48,7 +48,12 @@ One observation may carry multiple rule IDs but is counted once. Promotion
 updates use the stable event ID so adding a later rule does not increase counts.
 
 Adapters emit only failed authentications. The classifier excludes configured
-legitimate usernames and trusted CIDRs before they affect threshold state.
+legitimate usernames and trusted CIDRs before they affect threshold state. When
+the source captures the attempted password (Cowrie does; the OpenSSH journal
+never exposes it) it is retained on the observation as an optional field and
+aggregated into its own published dimension alongside usernames. A password
+that is empty, oversized, or non-printable is dropped without discarding the
+failed authentication it accompanies.
 Events for a source must arrive in event-time order; the future ingestion layer
 will buffer within a configured lateness watermark and quarantine older events.
 Classifier state is bounded by configured source, per-source event, and total

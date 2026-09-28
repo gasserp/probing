@@ -340,6 +340,55 @@ func openTestStore(t *testing.T) *Store {
 	return state
 }
 
+func TestCreatePendingBatchCarriesAttemptedPassword(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	state, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+
+	ssh := testSSHObservation("ssh-1", "cursor-1", "root", "2026-09-10T19:05:00Z")
+	ssh.SSH.Password = "123456"
+	if _, err := state.CommitObservation(ctx, "cowrie", ClassifiedObservation{Observation: ssh}, PromotionUpdate{
+		EventID: "ssh-1",
+		RuleIDs: []string{"ssh/all-attempts-v1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := state.CreatePendingBatch(
+		ctx,
+		BatchConfig{
+			SourceID:          "sensor-one",
+			SourceEpoch:       "5d6079de-20e0-4d4b-b955-40eac8f14df8",
+			ClassifierVersion: "classifier-v1",
+			KeyID:             "key-1",
+			PrivateKey:        privateKey,
+		},
+		time.Date(2026, 9, 10, 20, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 10, 19, 30, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := protocol.DecodeSignedBatch(batch.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Payload.Records) != 1 {
+		t.Fatalf("unexpected records: %#v", decoded.Payload.Records)
+	}
+	if got := decoded.Payload.Records[0].Password; got != "123456" {
+		t.Fatalf("attempted password was not carried into the batch: %q", got)
+	}
+}
+
 func testSSHObservation(eventID, cursor, username, observedAt string) protocol.Observation {
 	return protocol.Observation{
 		SchemaVersion: protocol.ObservationSchemaVersion,

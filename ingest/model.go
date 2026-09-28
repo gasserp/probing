@@ -53,6 +53,8 @@ type PeriodLedger struct {
 	SourceIPsOverflow uint64            `json:"source_ips_overflow"`
 	Usernames         map[string]uint64 `json:"usernames"`
 	UsernamesOverflow uint64            `json:"usernames_overflow"`
+	Passwords         map[string]uint64 `json:"passwords,omitempty"`
+	PasswordsOverflow uint64            `json:"passwords_overflow,omitempty"`
 	Paths             map[string]uint64 `json:"paths"`
 	PathsOverflow     uint64            `json:"paths_overflow"`
 }
@@ -72,6 +74,7 @@ type RollupPeriod struct {
 	Sources   []SourceTotal `json:"sources"`
 	SourceIPs []ValueTotal  `json:"source_ips"`
 	Usernames []ValueTotal  `json:"usernames"`
+	Passwords []ValueTotal  `json:"passwords"`
 	Paths     []ValueTotal  `json:"paths"`
 }
 

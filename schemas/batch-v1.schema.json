@@ -98,6 +98,11 @@
           "minLength": 1,
           "maxLength": 256
         },
+        "password": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
         "path": {
           "type": "string",
           "minLength": 1,
@@ -161,8 +166,17 @@
             "path"
           ],
           "not": {
-            "required": [
-              "username"
+            "anyOf": [
+              {
+                "required": [
+                  "username"
+                ]
+              },
+              {
+                "required": [
+                  "password"
+                ]
+              }
             ]
           }
         }

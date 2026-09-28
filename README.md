@@ -20,9 +20,10 @@ The project is protocol-first. The current milestone provides:
 - JSON Schemas and threat-model documentation.
 
 Accepted promoted observations intentionally publish exact source IP addresses,
-attempted usernames, and eligible suspected-probe paths. They are prominently
-labeled **self-reported suspected probes**: source signatures establish
-provenance, not truth, intent, ownership, compromise, or abuse.
+attempted usernames, attempted passwords (when the upstream honeypot captures
+them), and eligible suspected-probe paths. They are prominently labeled
+**self-reported suspected probes**: source signatures establish provenance, not
+truth, intent, ownership, compromise, or abuse.
 
 ## Development
 

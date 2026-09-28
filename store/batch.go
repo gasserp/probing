@@ -43,6 +43,7 @@ type storedObservation struct {
 	observedAt time.Time
 	sourceIP   string
 	value      string
+	password   string
 	ruleIDs    []string
 }
 
@@ -284,6 +285,7 @@ func selectBatchObservations(
 	rows, err := tx.QueryContext(ctx, `
 		SELECT event_id, kind, observed_at, source_ip,
 			CASE WHEN kind = 'ssh_auth_failure' THEN username ELSE path END,
+			password,
 			rule_ids
 		FROM observations
 		WHERE promoted = 1
@@ -319,6 +321,7 @@ func selectBatchObservations(
 		var observation storedObservation
 		var kind string
 		var observedAt string
+		var password sql.NullString
 		var ruleIDsJSON string
 		if err := rows.Scan(
 			&observation.eventID,
@@ -326,11 +329,13 @@ func selectBatchObservations(
 			&observedAt,
 			&observation.sourceIP,
 			&observation.value,
+			&password,
 			&ruleIDsJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan batch observation: %w", err)
 		}
 		observation.kind = protocol.ObservationKind(kind)
+		observation.password = password.String
 		observation.observedAt, err = time.Parse(time.RFC3339Nano, observedAt)
 		if err != nil {
 			return nil, fmt.Errorf("parse stored observation time: %w", err)
@@ -370,7 +375,8 @@ func buildPayload(
 			last = observation.observedAt
 		}
 		key := string(observation.kind) + "\x00" + observation.sourceIP + "\x00" +
-			observation.value + "\x00" + strings.Join(observation.ruleIDs, "\x1f")
+			observation.value + "\x00" + observation.password + "\x00" +
+			strings.Join(observation.ruleIDs, "\x1f")
 		group := groups[key]
 		if group == nil {
 			group = &aggregate{
@@ -387,6 +393,7 @@ func buildPayload(
 			}
 			if observation.kind == protocol.ObservationSSHAuthFailure {
 				group.record.Username = observation.value
+				group.record.Password = observation.password
 			} else {
 				group.record.Path = observation.value
 			}
@@ -444,7 +451,8 @@ func batchRecordSortKey(record protocol.BatchRecord) string {
 		value = record.Path
 	}
 	return string(record.Kind) + "\x00" + record.SourceIP + "\x00" + value + "\x00" +
-		record.FirstObservedAt + "\x00" + strings.Join(record.RuleIDs, "\x1f")
+		record.Password + "\x00" + record.FirstObservedAt + "\x00" +
+		strings.Join(record.RuleIDs, "\x1f")
 }
 
 func incrementSequence(sequence string) (string, error) {

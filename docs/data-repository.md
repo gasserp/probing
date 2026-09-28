@@ -116,6 +116,8 @@ contains.
 
 UTC hourly buckets feed hourly, daily, monthly, and yearly accumulators.
 Generated public files expose totals, source ID/epoch provenance, and the top
-100 exact source IPs, attempted usernames, and eligible paths per period.
+100 exact source IPs, attempted usernames, attempted passwords, and eligible
+paths per period. Passwords are only present for sources that report the
+attempted secret (such as Cowrie); the OpenSSH journal never exposes it.
 Ledger and generated files are written through `fsync` plus atomic rename, with
 the ledger written last.
