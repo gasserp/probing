@@ -107,6 +107,12 @@ jobs:
           wrapper="$(mktemp)"
           {
             echo "set -eu"
+            # migrate-v2.sh refuses to run over a checkout with tracked
+            # modifications (a guard for interactive operators). This is an
+            # automated rebuild from a ref and /opt/probing is a disposable
+            # source checkout — all durable state lives in /var/lib/probing — so
+            # reset any drift to a pristine tree first.
+            echo 'if [ -d /opt/probing/.git ]; then git -C /opt/probing reset --hard -q && git -C /opt/probing clean -fdq; fi'
             printf "/bin/sh -s -- --storage-account %q --storage-container %q --repository-ref %q <<'PROBING_MIGRATE_EOF'\n" \
               "$PROBING_STORAGE_ACCOUNT" "$PROBING_STORAGE_CONTAINER" "$DEPLOY_REF"
             cat infra/migrate-v2.sh
