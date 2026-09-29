@@ -4,8 +4,8 @@
 
 - **Observation:** one normalized failed SSH authentication or HTTP request
   emitted by an adapter.
-- **Promotion:** a classifier decision that an observation belongs to a
-  suspected-probe episode. Promotions are upserts keyed by event ID.
+- **Promotion:** a classifier decision that an observation is a suspected
+  probe and eligible for publication. Promotions are upserts keyed by event ID.
 - **Batch:** an immutable, signed collection of locally aggregated promoted
   observations.
 - **Reported observation:** data asserted by a registered source. A signature
@@ -36,33 +36,24 @@ limits do not replace that isolation.
 
 ## SSH classifier
 
-The defaults are:
+The classifier is stateless: every failed authentication is promoted
+immediately under rule `ssh/all-attempts-v1`. There is no event-time window,
+attempt threshold, or episode state. One observation may carry multiple rule
+IDs but is counted once. Promotion updates use the stable event ID so adding a
+later rule does not increase counts.
 
-- a 15-minute sliding event-time window;
-- promotion on the sixth failure for one source-IP/username pair; and
-- promotion when one source IP tries a sixth distinct username.
-
-Crossing a threshold promotes the complete triggering window. A promoted
-episode remains active until 15 minutes pass without a qualifying observation.
-One observation may carry multiple rule IDs but is counted once. Promotion
-updates use the stable event ID so adding a later rule does not increase counts.
-
-Adapters emit only failed authentications. The classifier excludes configured
-legitimate usernames and trusted CIDRs before they affect threshold state. When
+Adapters emit only failed authentications. The classifier drops configured
+legitimate usernames and trusted CIDRs before promotion. When
 the source captures the attempted password (Cowrie does; the OpenSSH journal
 never exposes it) it is retained on the observation as an optional field.
 Central ingestion aggregates it into its own published dimension only when the
 registry marks the source as `decoy`. A password
 that is empty, oversized, or non-printable is dropped without discarding the
 failed authentication it accompanies.
-Events for a source must arrive in event-time order; the future ingestion layer
-will buffer within a configured lateness watermark and quarantine older events.
-Classifier state is bounded by configured source, per-source event, and total
-event limits. Crossing a limit produces an error for quarantine rather than
-silently dropping or promoting input.
 
-Only observations older than the classifier watermark are eligible for a
-batch. Promotion changes to an observation already assigned to an immutable
+Only observations older than the batch watermark, 30 seconds after the UTC
+hour boundary, are eligible for a batch. Promotion changes to an observation
+already assigned to an immutable
 batch are rejected. This makes classifier finality an explicit precondition of
 batch creation.
 
@@ -126,12 +117,17 @@ and the local store refuses to create more than 128 unpublished batches.
 
 ## Registration and recovery
 
-A registry entry reserves a unique source ID and records its public repository,
-branch, active epoch, public signing key, classifier policy, kind (`decoy` or
-`host`), and trust state.
-Repository control is proven using a challenge nonce committed at a fixed path.
+A registry entry in `probing-data` reserves a unique source ID and records its
+epoch, key ID, public signing key, blob prefix, kind (`decoy` or `host`), and
+whether it is `enabled`. Registration is a reviewed pull request to that
+registry. Setting `enabled` to false revokes the entry: later batches for it
+are quarantined, but historical observations are not removed.
 
-Key rotation requires old-key and new-key signatures. Lost-key recovery creates
-a reviewed epoch discontinuity. Revocation prevents future acceptance but does
-not silently remove historical observations. Emergency deletion uses an
-audited tombstone and a separately approved history-removal procedure.
+Each epoch has exactly one key. Rotating a key, whether planned or after a
+loss, means registering a new epoch with the new key, which is an explicit,
+reviewed discontinuity, and disabling the old entry.
+
+Planned, not yet implemented: proof of repository control through a
+committed challenge nonce, key rotation within an epoch authorized by both
+old-key and new-key signatures, and emergency deletion through an audited
+tombstone with a separately approved history-removal procedure.

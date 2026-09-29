@@ -42,7 +42,7 @@ size-checked again before atomic replacement.
 
 ## Key lifecycle
 
-The versioned migration script used by cloud-init creates the Ed25519 PKCS#8
+The versioned migration script used by cloud-init and the `deploy` workflow creates the Ed25519 PKCS#8
 key and lowercase UUID epoch once under
 `/var/lib/probing`. The private key is mode `0600`, owned by UID/GID 65532,
 mounted only into the networkless collector, and never placed in Git, Bicep,
@@ -54,11 +54,11 @@ epoch, the private key, and pending outbox files together while the collector
 is stopped. Losing only the key makes unpublished and future batches
 unrecoverable. Restore the complete set with original ownership and modes.
 
-Planned rotation registers a new key ID and requires the existing protocol's
-old-key/new-key authorization before deployment. Lost-key recovery creates a
-new reviewed source epoch and an explicit discontinuity; never reset sequence
-zero inside an existing epoch. Revoke the old registry entry without rewriting
-accepted history.
+Each epoch has exactly one key; rotation within an epoch is not implemented
+yet. Both planned rotation and lost-key recovery therefore create a new reviewed
+source epoch with a new key, an explicit discontinuity. Never reset sequence
+zero inside an existing epoch. Revoke the old registry entry by setting
+`enabled` to false, without rewriting accepted history.
 
 ## Retention, cost, and recovery
 
@@ -81,3 +81,8 @@ Manual recovery:
    recovery. Do not edit the central ledger by hand.
 6. If Pages is stale but ingestion is current, manually dispatch the `pages`
    workflow; it reads only committed `probing-data` rollups.
+7. If ingest runs succeed but the rollups stop advancing and
+   `data/quarantine.json` gains `invalid_envelope` entries, the collector and
+   acceptance disagree on the batch wire format. See
+   [`infra/README.md`](../infra/README.md#redeploying-from-github-actions).
+   Once acceptance matches, the next run accepts the retained blobs.

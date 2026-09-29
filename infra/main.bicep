@@ -24,8 +24,8 @@ param maxSpotPrice string = '0.02'
 param includeCloudInit bool = true
 @description('Git ref or commit used by the versioned collector migration.')
 param repositoryRef string = 'main'
-@description('GitHub OIDC subject allowed to run the deploy workflow. Defaults to the repo "production" environment; adjust to match the sub claim GitHub issues for this repo (see infra/README.md).')
-param githubDeploySubject string = 'repo:gasserp/probing:environment:production'
+@description('GitHub OIDC subject allowed to run the deploy workflow: the "production" environment of gasserp/probing, in the stable-ID form GitHub issues for this repo (owner@owner_id/repo@repo_id; see infra/README.md).')
+param githubDeploySubject string = 'repo:gasserp@13432519/probing@1364631664:environment:production'
 
 var isSpot = computeProfile == 'spot-low-cost'
 var vmSize = isSpot ? 'Standard_A1_v2' : 'Standard_B1s'

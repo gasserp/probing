@@ -81,8 +81,8 @@ reason code. Quarantine never copies hostile batch content.
 
 ## Ingestion workflow
 
-The `main` workflow in `probing-data` must have `id-token: write` and
-`contents: write`. It logs in with `azure/login`, downloads the configured Blob
+The `ingest` workflow (`.github/workflows/ingest.yml`) in `probing-data` runs
+hourly and must have `id-token: write` and `contents: write`. It logs in with `azure/login`, downloads the configured Blob
 container using `--auth-mode login`, checks out `gasserp/probing` at the ref
 named in `deploy/VERSION` on its `main` branch (a `probing_ref` dispatch input
 overrides it for one run), builds `./cmd/probing-ingest`, then runs:
@@ -107,16 +107,15 @@ names with `az storage blob delete --auth-mode login`. Never use
 lifecycle rule removes them. A crash before deletion produces a harmless
 byte-identical replay on the next run.
 
-Required GitHub repository variables are:
+Required GitHub repository variables in `probing-data` are:
 
 | Variable | Bicep output |
 |---|---|
-| `AZURE_CLIENT_ID` | `githubClientId` |
+| `AZURE_CLIENT_ID` | `githubClientId` (the ingest identity, not `githubDeployClientId`) |
 | `AZURE_TENANT_ID` | `githubTenantId` |
 | `AZURE_SUBSCRIPTION_ID` | `githubSubscriptionId` |
 | `PROBING_STORAGE_ACCOUNT` | `storageAccountName` |
 | `PROBING_STORAGE_CONTAINER` | `storageContainerName` |
-| `PROBING_STORAGE_RESOURCE_GROUP` | `resourceGroupName` |
 
 There are no account keys, SAS values, PATs, or other publication secrets.
 GitHub's branch subject is fixed to

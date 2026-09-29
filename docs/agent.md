@@ -24,9 +24,6 @@ classifier state might diverge.
     }
   ],
   "ssh": {
-    "window_seconds": 900,
-    "pair_threshold": 6,
-    "distinct_username_threshold": 6,
     "excluded_usernames": ["deploy"],
     "trusted_cidrs": ["2001:db8:1234::/48"]
   },
@@ -40,11 +37,23 @@ classifier state might diverge.
     "source_epoch_path": "/var/lib/probing/source-epoch",
     "private_key_path": "/var/lib/probing/source-private-key.pem",
     "key_id": "gasserp-azure-weu-01-ed25519-1",
-    "classifier_version": "probing-classifier-v1",
+    "classifier_version": "probing-classifier-v2",
     "outbox_directory": "/var/lib/probing/outbox"
   }
 }
 ```
+
+The file is decoded strictly: an unknown key stops the agent at startup.
+
+- `ssh`: every failed SSH login is flagged (rule `ssh/all-attempts-v1`)
+  unless its username is in `excluded_usernames` or its source falls inside
+  one of `trusted_cidrs`. There is no time window or attempt threshold.
+- `http.eligible_statuses` defaults to `[400, 403, 404]` when omitted.
+- `http.sensitive_path_patterns` is a list of regular expressions; a request
+  whose path matches any of them is dropped entirely, never published. When
+  omitted, built-in patterns catch email addresses, `token`/`secret`/
+  `password`/`api-key` path segments, and JWTs. Setting the key replaces those
+  defaults, and `[]` disables them.
 
 Run:
 
@@ -60,7 +69,7 @@ durable resume/ack semantics. The daemon handles `SIGINT` and `SIGTERM`.
 
 Publication is optional outside the reference deployment. When configured, the
 agent runs an hourly UTC batch pump. At hour `H`, only observations older than
-`H - ssh.window_seconds` are eligible. The pump writes the exact signed
+a fixed watermark of `H` minus 30 seconds are eligible. The pump writes the exact signed
 envelope bytes by temporary-file, `fsync`, and rename, and never modifies them
 on retry. It accepts only a canonical, bounded receipt matching the source,
 epoch, sequence, payload hash, envelope hash, and deterministic blob name.
