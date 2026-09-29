@@ -83,8 +83,9 @@ reason code. Quarantine never copies hostile batch content.
 
 The `main` workflow in `probing-data` must have `id-token: write` and
 `contents: write`. It logs in with `azure/login`, downloads the configured Blob
-container using `--auth-mode login`, checks out `gasserp/probing`, builds
-`./cmd/probing-ingest`, then runs:
+container using `--auth-mode login`, checks out `gasserp/probing` at the ref
+named in `deploy/VERSION` on its `main` branch (a `probing_ref` dispatch input
+overrides it for one run), builds `./cmd/probing-ingest`, then runs:
 
 ```sh
 probing-ingest \
