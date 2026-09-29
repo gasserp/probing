@@ -4,18 +4,20 @@
 # new --repository-ref to upgrade. See docs/raspberry-pi.md.
 #
 # It preserves the source key, epoch, SQLite state, and outbox under
-# /var/lib/probing, and it never prints the private key or client secret.
+# /var/lib/probing, and it never prints the private key or upload credential.
 set -euo pipefail
 
 repository_url=https://github.com/gasserp/probing.git
 repository_path=/opt/probing
 stack=deploy/openssh
-secret_file=/etc/probing/azure-client-secret
+secret_file=/etc/probing/upload-credential
+legacy_secret_file=/etc/probing/azure-client-secret
 config_file=/etc/probing/config.json
 sshd_dropin=/etc/ssh/sshd_config.d/00-probing.conf
 
 source_id=
 admin_user=
+github_repository=
 storage_account=
 storage_container=
 tenant_id=
@@ -28,12 +30,17 @@ default_trusted_cidrs=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 127
 
 usage() {
   cat >&2 <<'EOF'
-usage: install.sh --source-id ID --admin-user NAME
-                  --storage-account NAME --storage-container NAME
-                  --tenant-id GUID --client-id GUID --repository-ref REF
+usage: install.sh --source-id ID --admin-user NAME --repository-ref REF
+                  --github-repository OWNER/NAME
                   [--trusted-cidr CIDR]... [--ssh-unit NAME.service] [--keep-sshd-config]
 
-The Entra client secret must already be in /etc/probing/azure-client-secret.
+   or, to upload to the maintainer's Azure Blob container instead:
+       install.sh --source-id ID --admin-user NAME --repository-ref REF
+                  --storage-account NAME --storage-container NAME
+                  --tenant-id GUID --client-id GUID  [options as above]
+
+The GitHub token (or Entra client secret) is read from
+/etc/probing/upload-credential; if that file is missing, you are prompted for it.
 EOF
   exit 2
 }
@@ -43,6 +50,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --source-id) source_id=$2; shift 2 ;;
     --admin-user) admin_user=$2; shift 2 ;;
+    --github-repository) github_repository=$2; shift 2 ;;
     --storage-account) storage_account=$2; shift 2 ;;
     --storage-container) storage_container=$2; shift 2 ;;
     --tenant-id) tenant_id=$2; shift 2 ;;
@@ -61,10 +69,16 @@ die() { echo "install.sh: $*" >&2; exit 1; }
 guid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 grep -Eq '^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$' <<<"$source_id" || usage
 grep -Eq '^[a-z_][a-z0-9_-]{0,31}$' <<<"$admin_user" || usage
-grep -Eq '^[a-z0-9]{3,24}$' <<<"$storage_account" || usage
-grep -Eq '^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$' <<<"$storage_container" || usage
-grep -Eq "$guid" <<<"$tenant_id" || usage
-grep -Eq "$guid" <<<"$client_id" || usage
+if [ -n "$github_repository" ]; then
+  [ -z "$storage_account$storage_container$tenant_id$client_id" ] || usage
+  grep -Eq '^[A-Za-z0-9]([A-Za-z0-9]|-[A-Za-z0-9]){0,38}/[A-Za-z0-9._-]{1,100}$' <<<"$github_repository" || usage
+  case "${github_repository#*/}" in .|..|*.git|*.GIT) usage ;; esac
+else
+  grep -Eq '^[a-z0-9]{3,24}$' <<<"$storage_account" || usage
+  grep -Eq '^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$' <<<"$storage_container" || usage
+  grep -Eq "$guid" <<<"$tenant_id" || usage
+  grep -Eq "$guid" <<<"$client_id" || usage
+fi
 grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$' <<<"$repository_ref" || usage
 case "$repository_ref" in *..*|*/) usage ;; esac
 grep -Eq '^[A-Za-z0-9:_.@-]{1,255}\.service$' <<<"$ssh_unit" || usage
@@ -241,9 +255,34 @@ EOF
 chmod 0644 "$config_file.tmp"
 mv "$config_file.tmp" "$config_file"
 
-[ -s "$secret_file" ] || die "$secret_file is missing; see docs/raspberry-pi.md"
+# The upload credential: a GitHub token that may write only to the
+# contributor's batch repository, or an Entra client secret. Never echoed.
+if [ ! -s "$secret_file" ] && [ -s "$legacy_secret_file" ]; then
+  mv "$legacy_secret_file" "$secret_file"
+fi
+if [ ! -s "$secret_file" ]; then
+  [ -t 0 ] || die "$secret_file is missing; see docs/raspberry-pi.md"
+  if [ -n "$github_repository" ]; then
+    prompt="GitHub token for $github_repository (input hidden): "
+  else
+    prompt="Entra client secret for $client_id (input hidden): "
+  fi
+  IFS= read -r -s -p "$prompt" credential
+  echo
+  [ -n "$credential" ] || die "no credential entered"
+  (umask 077; printf '%s\n' "$credential" > "$secret_file.tmp")
+  unset credential
+  mv "$secret_file.tmp" "$secret_file"
+fi
 chown 65532:65532 "$secret_file"
 chmod 0400 "$secret_file"
+
+# The central ingest workflow reads batches anonymously, so the repository
+# must be public. A private or misspelled repository answers 404.
+if [ -n "$github_repository" ] &&
+   ! curl -fsS -o /dev/null "https://api.github.com/repos/$github_repository"; then
+  die "https://github.com/$github_repository is not a public repository; create it (public, with a README) first"
+fi
 
 # Code, checked out detached at the requested ref.
 compose="docker compose -f $repository_path/$stack/docker-compose.yml"
@@ -264,6 +303,7 @@ environment_file=$repository_path/$stack/.env
 {
   printf 'PROBING_JOURNAL_GID=%s\n' "$journal_gid"
   printf 'PROBING_SSH_UNIT=%s\n' "$ssh_unit"
+  printf 'PROBING_GITHUB_REPOSITORY=%s\n' "$github_repository"
   printf 'PROBING_STORAGE_ACCOUNT=%s\n' "$storage_account"
   printf 'PROBING_STORAGE_CONTAINER=%s\n' "$storage_container"
   printf 'PROBING_AZURE_TENANT_ID=%s\n' "$tenant_id"
@@ -289,6 +329,8 @@ done
 
 epoch=$(cat "$source_epoch")
 raw_public_key=$(openssl pkey -pubin -in "$public_key" -outform DER | tail -c 32 | basenc --base64url | tr -d '=')
+github_line=
+[ -z "$github_repository" ] || github_line=$(printf '\n  "github_repository": "%s",' "$github_repository")
 cat <<EOF
 
 Registry entry for probing-data registry/sources.json (kind "host": real
@@ -300,7 +342,7 @@ OpenSSH, so no passwords are published):
   "key_id": "$source_id-ed25519-1",
   "public_key": "$raw_public_key",
   "blob_prefix": "$source_id/$epoch/",
-  "kind": "host",
+  "kind": "host",$github_line
   "enabled": true
 }
 

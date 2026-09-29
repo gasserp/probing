@@ -61,9 +61,17 @@ uploader = services["uploader"]
 if uploader.get("user") != "65532:65532":
     fail("uploader must run as 65532:65532")
 uploader_mounts = mounts("uploader")
-if set(uploader_mounts) != {"/outbox", "/secrets/azure-client-secret"}:
-    fail("uploader may mount only /outbox and its client secret")
-if not uploader_mounts["/secrets/azure-client-secret"].get("read_only"):
-    fail("uploader client secret mount must be read-only")
+if set(uploader_mounts) != {"/outbox", "/secrets/upload-credential"}:
+    fail("uploader may mount only /outbox and its upload credential")
+if not uploader_mounts["/secrets/upload-credential"].get("read_only"):
+    fail("uploader credential mount must be read-only")
+command = uploader.get("command", [])
+arguments = dict(zip(command[::2], command[1::2]))
+github = arguments.get("-github-repository", "")
+azure = [arguments.get(flag, "") for flag in ("-account", "-container", "-tenant-id", "-client-id")]
+if github and any(azure):
+    fail("uploader must target either a GitHub repository or Azure, not both")
+if not github and not all(azure):
+    fail("uploader needs a GitHub repository or a complete Azure service principal target")
 if set(uploader.get("networks", {})) != {"upload"}:
     fail("uploader requires only its dedicated upload network")

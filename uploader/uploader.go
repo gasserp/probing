@@ -3,6 +3,9 @@ package uploader
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,33 +25,45 @@ import (
 )
 
 const (
-	metadataEndpoint     = "http://169.254.169.254/metadata/identity/oauth2/token"
-	entraTokenEndpoint   = "https://login.microsoftonline.com/%s/oauth2/v2.0/token"
-	storageScope         = "https://storage.azure.com/.default"
-	storageAPIVersion    = "2023-11-03"
-	maxTokenBytes        = 32 << 10
-	maxResponseBytes     = 4 << 10
-	maxClientSecretBytes = 1 << 10
+	metadataEndpoint   = "http://169.254.169.254/metadata/identity/oauth2/token"
+	entraTokenEndpoint = "https://login.microsoftonline.com/%s/oauth2/v2.0/token"
+	storageScope       = "https://storage.azure.com/.default"
+	storageAPIVersion  = "2023-11-03"
+	githubAPIEndpoint  = "https://api.github.com"
+	githubAPIVersion   = "2022-11-28"
+	maxTokenBytes      = 32 << 10
+	maxResponseBytes   = 4 << 10
+	maxGitHubResponse  = 64 << 10
+	maxCredentialBytes = 1 << 10
 )
 
 var (
 	accountPattern   = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 	containerPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$`)
 	guidPattern      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	githubRepository = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}/[A-Za-z0-9._-]{1,100}$`)
 )
 
-// Config selects one of two credentials. Without ClientID the uploader uses
-// the Azure VM managed identity. With ClientID it uses an Entra service
-// principal's client secret, read from ClientSecretFile, for sensors that run
-// outside Azure and have no metadata endpoint.
+// Config selects where batches go and with which credential.
+//
+// With GitHubRepository, each batch is committed under its blob name to that
+// public owner/name repository, which the source owns and names in its
+// registry entry; CredentialFile holds a token that may write only there.
+// This is how contributors publish without any access to the maintainer's
+// storage.
+//
+// Otherwise batches go to the Azure Blob container Account/Container. Without
+// ClientID the uploader uses the Azure VM managed identity. With ClientID it
+// uses an Entra service principal whose client secret is in CredentialFile.
 type Config struct {
+	GitHubRepository string
 	Account          string
 	Container        string
 	OutboxDir        string
 	PollInterval     time.Duration
 	TenantID         string
 	ClientID         string
-	ClientSecretFile string
+	CredentialFile   string
 }
 
 type Uploader struct {
@@ -60,6 +75,8 @@ type Uploader struct {
 	tokenURL       string
 	clientSecret   string
 	storageBaseURL string
+	githubToken    string
+	githubBaseURL  string
 	now            func() time.Time
 
 	tokenMu     sync.Mutex
@@ -68,12 +85,6 @@ type Uploader struct {
 }
 
 func New(config Config) (*Uploader, error) {
-	if !accountPattern.MatchString(config.Account) {
-		return nil, errors.New("storage account name is invalid")
-	}
-	if !containerPattern.MatchString(config.Container) {
-		return nil, errors.New("storage container name is invalid")
-	}
 	if config.OutboxDir == "" {
 		return nil, errors.New("outbox directory is required")
 	}
@@ -83,16 +94,36 @@ func New(config Config) (*Uploader, error) {
 	if config.PollInterval < time.Second || config.PollInterval > time.Hour {
 		return nil, errors.New("poll interval must be between one second and one hour")
 	}
-	var clientSecret string
-	if config.ClientID != "" || config.TenantID != "" || config.ClientSecretFile != "" {
-		if !guidPattern.MatchString(config.TenantID) || !guidPattern.MatchString(config.ClientID) {
-			return nil, errors.New("tenant and client IDs must be lowercase GUIDs")
+	var clientSecret, githubToken string
+	if config.GitHubRepository != "" {
+		if config.Account != "" || config.Container != "" || config.TenantID != "" || config.ClientID != "" {
+			return nil, errors.New("a GitHub repository target excludes Azure storage settings")
 		}
-		secret, err := readClientSecret(config.ClientSecretFile)
+		if !validGitHubRepository(config.GitHubRepository) {
+			return nil, errors.New("GitHub repository must be owner/name")
+		}
+		token, err := readCredential(config.CredentialFile, "GitHub token")
 		if err != nil {
 			return nil, err
 		}
-		clientSecret = secret
+		githubToken = token
+	} else {
+		if !accountPattern.MatchString(config.Account) {
+			return nil, errors.New("storage account name is invalid")
+		}
+		if !containerPattern.MatchString(config.Container) {
+			return nil, errors.New("storage container name is invalid")
+		}
+		if config.ClientID != "" || config.TenantID != "" || config.CredentialFile != "" {
+			if !guidPattern.MatchString(config.TenantID) || !guidPattern.MatchString(config.ClientID) {
+				return nil, errors.New("tenant and client IDs must be lowercase GUIDs")
+			}
+			secret, err := readCredential(config.CredentialFile, "client secret")
+			if err != nil {
+				return nil, err
+			}
+			clientSecret = secret
+		}
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -109,26 +140,36 @@ func New(config Config) (*Uploader, error) {
 		tokenURL:       fmt.Sprintf(entraTokenEndpoint, config.TenantID),
 		clientSecret:   clientSecret,
 		storageBaseURL: "https://" + config.Account + ".blob.core.windows.net",
+		githubToken:    githubToken,
+		githubBaseURL:  githubAPIEndpoint,
 		now:            time.Now,
 	}, nil
 }
 
-func readClientSecret(path string) (string, error) {
+func validGitHubRepository(value string) bool {
+	if !githubRepository.MatchString(value) {
+		return false
+	}
+	name := value[strings.IndexByte(value, '/')+1:]
+	return name != "." && name != ".." && !strings.HasSuffix(strings.ToLower(name), ".git")
+}
+
+func readCredential(path, name string) (string, error) {
 	if path == "" {
-		return "", errors.New("client secret file is required with a client ID")
+		return "", fmt.Errorf("a credential file with the %s is required", name)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("open client secret file: %w", err)
+		return "", fmt.Errorf("open credential file: %w", err)
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxClientSecretBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxCredentialBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("read client secret file: %w", err)
+		return "", fmt.Errorf("read credential file: %w", err)
 	}
 	secret := strings.TrimRight(string(data), "\r\n")
-	if secret == "" || len(data) > maxClientSecretBytes || strings.ContainsAny(secret, "\x00\r\n") {
-		return "", errors.New("client secret file must contain one non-empty line")
+	if secret == "" || len(data) > maxCredentialBytes || strings.ContainsAny(secret, "\x00\r\n") {
+		return "", errors.New("credential file must contain one non-empty line")
 	}
 	return secret, nil
 }
@@ -202,7 +243,11 @@ func (u *Uploader) UploadOnce(ctx context.Context) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect receipt: %w", err)
 		}
-		etag, err := u.putEnvelope(ctx, envelope.BlobName, data)
+		put := u.putEnvelope
+		if u.config.GitHubRepository != "" {
+			put = u.putGitHubEnvelope
+		}
+		etag, err := put(ctx, envelope.BlobName, data)
 		if err != nil {
 			return fmt.Errorf("upload %q: %w", entry.Name(), err)
 		}
@@ -285,6 +330,112 @@ func (u *Uploader) compareExisting(ctx context.Context, blobURL, token string, e
 		return "", errors.New("existing blob conflicts with immutable envelope bytes")
 	}
 	return validatedETag(response.Header.Get("ETag"))
+}
+
+// putGitHubEnvelope commits the envelope under its blob name through the
+// GitHub contents API. Without a "sha" field the API only creates, so like
+// Azure's If-None-Match it never replaces an existing file; an existing file
+// must hold exactly these bytes. The receipt ETag is the Git blob SHA.
+func (u *Uploader) putGitHubEnvelope(ctx context.Context, blobName string, data []byte) (string, error) {
+	sha := gitBlobSHA(data)
+	body, err := json.Marshal(map[string]string{
+		"message": "Add batch " + blobName,
+		"content": base64.StdEncoding.EncodeToString(data),
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode GitHub request: %w", err)
+	}
+	contentsURL := u.githubContentsURL(blobName)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, contentsURL, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create GitHub request: %w", err)
+	}
+	u.authorizeGitHub(request)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := u.storageClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("create GitHub file: %w", err)
+	}
+	defer response.Body.Close()
+	switch response.StatusCode {
+	case http.StatusCreated:
+		var created struct {
+			Content struct {
+				SHA string `json:"sha"`
+			} `json:"content"`
+		}
+		responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxGitHubResponse+1))
+		if err != nil {
+			return "", fmt.Errorf("read GitHub response: %w", err)
+		}
+		if len(responseBody) > maxGitHubResponse || json.Unmarshal(responseBody, &created) != nil ||
+			created.Content.SHA != sha {
+			return "", errors.New("GitHub did not confirm the envelope's blob SHA")
+		}
+		return `"` + sha + `"`, nil
+	case http.StatusUnprocessableEntity, http.StatusConflict:
+		// 422: a file already exists at this path (or the request was
+		// rejected); 409: the branch moved. Either way, check what is there.
+		io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return u.compareExistingGitHub(ctx, contentsURL, data, sha, response.StatusCode)
+	default:
+		io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return "", fmt.Errorf("create GitHub file returned HTTP %d", response.StatusCode)
+	}
+}
+
+func (u *Uploader) compareExistingGitHub(
+	ctx context.Context,
+	contentsURL string,
+	expected []byte,
+	sha string,
+	createStatus int,
+) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, contentsURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create existing GitHub file request: %w", err)
+	}
+	u.authorizeGitHub(request)
+	request.Header.Set("Accept", "application/vnd.github.raw+json")
+	response, err := u.storageClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("read existing GitHub file: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return "", fmt.Errorf("create GitHub file returned HTTP %d", createStatus)
+	}
+	if response.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return "", fmt.Errorf("read existing GitHub file returned HTTP %d", response.StatusCode)
+	}
+	existing, err := io.ReadAll(io.LimitReader(response.Body, protocol.MaxEncodedEnvelopeBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read existing GitHub file: %w", err)
+	}
+	if !bytes.Equal(existing, expected) {
+		return "", errors.New("existing GitHub file conflicts with immutable envelope bytes")
+	}
+	return `"` + sha + `"`, nil
+}
+
+func (u *Uploader) githubContentsURL(blobName string) string {
+	return strings.TrimRight(u.githubBaseURL, "/") + "/repos/" + u.config.GitHubRepository + "/contents/" + blobName
+}
+
+func (u *Uploader) authorizeGitHub(request *http.Request) {
+	request.Header.Set("Authorization", "Bearer "+u.githubToken)
+	request.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
+	request.Header.Set("User-Agent", "probing-uploader")
+}
+
+func gitBlobSHA(data []byte) string {
+	hash := sha1.New()
+	fmt.Fprintf(hash, "blob %d\x00", len(data))
+	hash.Write(data)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func (u *Uploader) token(ctx context.Context) (string, error) {

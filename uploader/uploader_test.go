@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -348,12 +349,12 @@ func TestUploaderUsesClientCredentialsOutsideAzure(t *testing.T) {
 	}))
 	defer storage.Close()
 	process, err := New(Config{
-		Account:          "probingtest",
-		Container:        "pending-batches",
-		OutboxDir:        outbox,
-		TenantID:         "11111111-1111-1111-1111-111111111111",
-		ClientID:         "22222222-2222-2222-2222-222222222222",
-		ClientSecretFile: secretFile,
+		Account:        "probingtest",
+		Container:      "pending-batches",
+		OutboxDir:      outbox,
+		TenantID:       "11111111-1111-1111-1111-111111111111",
+		ClientID:       "22222222-2222-2222-2222-222222222222",
+		CredentialFile: secretFile,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -389,12 +390,12 @@ func TestNewRejectsIncompleteClientCredentials(t *testing.T) {
 	tenant := "11111111-1111-1111-1111-111111111111"
 	client := "22222222-2222-2222-2222-222222222222"
 	for name, config := range map[string]Config{
-		"missing tenant": {ClientID: client, ClientSecretFile: secretFile},
+		"missing tenant": {ClientID: client, CredentialFile: secretFile},
 		"missing secret": {TenantID: tenant, ClientID: client},
-		"empty secret":   {TenantID: tenant, ClientID: client, ClientSecretFile: emptyFile},
-		"uppercase GUID": {TenantID: tenant, ClientID: "22222222-2222-2222-2222-22222222222A", ClientSecretFile: secretFile},
-		"secret only":    {ClientSecretFile: secretFile},
-		"missing client": {TenantID: tenant, ClientSecretFile: secretFile},
+		"empty secret":   {TenantID: tenant, ClientID: client, CredentialFile: emptyFile},
+		"uppercase GUID": {TenantID: tenant, ClientID: "22222222-2222-2222-2222-22222222222A", CredentialFile: secretFile},
+		"secret only":    {CredentialFile: secretFile},
+		"missing client": {TenantID: tenant, CredentialFile: secretFile},
 	} {
 		t.Run(name, func(t *testing.T) {
 			config.Account = "probingtest"
@@ -402,6 +403,136 @@ func TestNewRejectsIncompleteClientCredentials(t *testing.T) {
 			config.OutboxDir = t.TempDir()
 			if _, err := New(config); err == nil {
 				t.Fatal("New() accepted incomplete client credentials")
+			}
+		})
+	}
+}
+
+func githubUploader(t *testing.T, outbox string, server *httptest.Server) *Uploader {
+	t.Helper()
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("github_pat_example\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	process, err := New(Config{
+		GitHubRepository: "alice/probing-batches",
+		OutboxDir:        outbox,
+		CredentialFile:   tokenFile,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	process.githubBaseURL = server.URL
+	process.storageClient = server.Client()
+	return process
+}
+
+func outboxWithEnvelope(t *testing.T) (string, []byte, publication.Envelope) {
+	t.Helper()
+	outbox := t.TempDir()
+	data := signedEnvelope(t)
+	envelope, err := publication.ValidateEnvelope(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outbox, envelope.FileName), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	return outbox, data, envelope
+}
+
+func TestGitHubUploaderCreatesFileUnderBlobName(t *testing.T) {
+	outbox, data, envelope := outboxWithEnvelope(t)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPut ||
+			request.URL.Path != "/repos/alice/probing-batches/contents/"+envelope.BlobName ||
+			request.Header.Get("Authorization") != "Bearer github_pat_example" ||
+			request.Header.Get("X-GitHub-Api-Version") != "2022-11-28" {
+			t.Errorf("unexpected request: %s %s %#v", request.Method, request.URL.Path, request.Header)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if _, replaces := body["sha"]; replaces {
+			t.Error("create request may replace an existing file")
+		}
+		content, err := base64.StdEncoding.DecodeString(body["content"])
+		if err != nil || !bytes.Equal(content, data) {
+			t.Error("uploader changed immutable envelope bytes")
+		}
+		writer.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(writer, `{"content":{"sha":%q},"commit":{"sha":"abc"}}`, gitBlobSHA(content))
+	}))
+	defer server.Close()
+	if err := githubUploader(t, outbox, server).UploadOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	receiptData, err := os.ReadFile(filepath.Join(outbox, publication.ReceiptFileName(envelope.FileName)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := publication.DecodeReceipt(receiptData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.BlobName != envelope.BlobName || receipt.ETag != `"`+gitBlobSHA(data)+`"` {
+		t.Fatalf("unexpected receipt: %#v", receipt)
+	}
+}
+
+func TestGitHubUploaderAcceptsOnlyIdenticalExistingFile(t *testing.T) {
+	for name, existingMatches := range map[string]bool{"identical": true, "conflicting": false} {
+		t.Run(name, func(t *testing.T) {
+			outbox, data, envelope := outboxWithEnvelope(t)
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				switch request.Method {
+				case http.MethodPut:
+					writer.WriteHeader(http.StatusUnprocessableEntity)
+					fmt.Fprint(writer, `{"message":"Invalid request.\n\n\"sha\" wasn't supplied."}`)
+				case http.MethodGet:
+					if request.Header.Get("Accept") != "application/vnd.github.raw+json" {
+						t.Errorf("existing file read has Accept %q", request.Header.Get("Accept"))
+					}
+					if existingMatches {
+						writer.Write(data)
+					} else {
+						writer.Write(append([]byte(nil), data[:len(data)-1]...))
+					}
+				}
+			}))
+			defer server.Close()
+			err := githubUploader(t, outbox, server).UploadOnce(context.Background())
+			_, receiptErr := os.Stat(filepath.Join(outbox, publication.ReceiptFileName(envelope.FileName)))
+			if existingMatches && (err != nil || receiptErr != nil) {
+				t.Fatalf("identical existing file not treated as uploaded: %v, %v", err, receiptErr)
+			}
+			if !existingMatches && (err == nil || receiptErr == nil) {
+				t.Fatal("conflicting existing file was treated as uploaded")
+			}
+		})
+	}
+}
+
+func TestNewRejectsInvalidGitHubTarget(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("github_pat_example"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	for name, config := range map[string]Config{
+		"missing token":  {GitHubRepository: "alice/batches"},
+		"no owner":       {GitHubRepository: "batches", CredentialFile: tokenFile},
+		"path traversal": {GitHubRepository: "alice/..", CredentialFile: tokenFile},
+		"extra segment":  {GitHubRepository: "alice/batches/x", CredentialFile: tokenFile},
+		"with azure": {
+			GitHubRepository: "alice/batches", CredentialFile: tokenFile,
+			Account: "probingtest", Container: "pending-batches",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config.OutboxDir = t.TempDir()
+			if _, err := New(config); err == nil {
+				t.Fatal("New() accepted an invalid GitHub target")
 			}
 		})
 	}

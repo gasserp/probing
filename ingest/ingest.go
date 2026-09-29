@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,12 @@ const (
 	MaxQuarantine      = 256
 	MaxQuarantineFile  = 512
 	MaxRuntime         = 2 * time.Minute
+)
+
+// githubRepositoryPattern follows GitHub's owner and repository name rules
+// closely enough to keep the value safe inside an API or raw-content URL path.
+var githubRepositoryPattern = regexp.MustCompile(
+	`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}/[A-Za-z0-9._-]{1,100}$`,
 )
 
 type Options struct {
@@ -149,6 +156,9 @@ func loadRegistry(path, expectedRepository string) (Registry, map[string]registe
 		default:
 			return Registry{}, nil, fmt.Errorf("registry source %d has an unknown kind", i)
 		}
+		if source.GitHubRepository != "" && !validGitHubRepository(source.GitHubRepository) {
+			return Registry{}, nil, fmt.Errorf("registry source %d has an invalid github_repository", i)
+		}
 		expectedPrefix := source.SourceID + "/" + source.SourceEpoch + "/"
 		if source.BlobPrefix != expectedPrefix {
 			return Registry{}, nil, fmt.Errorf("registry source %d has a non-deterministic blob_prefix", i)
@@ -167,6 +177,67 @@ func loadRegistry(path, expectedRepository string) (Registry, map[string]registe
 		}
 	}
 	return registry, registered, nil
+}
+
+func validGitHubRepository(value string) bool {
+	if !githubRepositoryPattern.MatchString(value) {
+		return false
+	}
+	name := value[strings.IndexByte(value, '/')+1:]
+	return name != "." && name != ".." && !strings.HasSuffix(strings.ToLower(name), ".git")
+}
+
+// FetchTarget is an enabled source that publishes its batches to its own
+// public GitHub repository. NextSequence is the lowest sequence acceptance
+// still needs, so a fetcher can skip everything already in the ledger.
+type FetchTarget struct {
+	SourceID     string
+	SourceEpoch  string
+	Repository   string
+	NextSequence string
+}
+
+// FetchTargets validates the registry and ledger exactly as Run does and
+// returns the sources to pull from GitHub, sorted by source ID and epoch.
+func FetchTargets(repositoryPath, repositoryIdentity string) ([]FetchTarget, error) {
+	_, registered, err := loadRegistry(
+		filepath.Join(repositoryPath, "registry", "sources.json"),
+		repositoryIdentity,
+	)
+	if err != nil {
+		return nil, err
+	}
+	ledger, err := loadLedger(
+		filepath.Join(repositoryPath, "data", "acceptance-ledger.json"),
+		repositoryIdentity,
+	)
+	if err != nil {
+		return nil, err
+	}
+	targets := []FetchTarget{}
+	for _, source := range registered {
+		registration := source.registration
+		if !registration.Enabled || registration.GitHubRepository == "" {
+			continue
+		}
+		next := "0"
+		if index, ok := ledgerSourceIndex(ledger, registration.SourceID, registration.SourceEpoch); ok {
+			next = ledger.Sources[index].NextSequence
+		}
+		targets = append(targets, FetchTarget{
+			SourceID:     registration.SourceID,
+			SourceEpoch:  registration.SourceEpoch,
+			Repository:   registration.GitHubRepository,
+			NextSequence: next,
+		})
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].SourceID != targets[j].SourceID {
+			return targets[i].SourceID < targets[j].SourceID
+		}
+		return targets[i].SourceEpoch < targets[j].SourceEpoch
+	})
+	return targets, nil
 }
 
 // refreshSourceKinds copies each registered source's kind into the ledger so

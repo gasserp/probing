@@ -17,10 +17,12 @@ Collect on dev, test, and decoy systems. Block in production.
    usernames and networks you exclude, and HTTP path-traversal or
    sensitive-file requests.
 3. Every hour the agent signs a batch of flagged observations with its
-   Ed25519 key and uploads it.
-4. Central ingestion checks the signature, sequence number, and hash chain
-   of every batch, rejects anything malformed, and publishes aggregated
-   results.
+   Ed25519 key and commits it to a public GitHub repository that you own.
+4. You register the sensor's public key and batch repository with a pull
+   request to [`probing-data`](https://github.com/gasserp/probing-data).
+   From then on, central ingestion pulls your batches every hour, checks the
+   signature, sequence number, and hash chain of each one, rejects anything
+   malformed, and publishes aggregated results.
 5. You pull the resulting list into production firewalls, reverse proxies,
    or fail2ban.
 
@@ -45,14 +47,16 @@ Early. Working today:
 - a hardened Docker Compose sensor with Nginx and Cowrie decoys;
 - a `host` sensor for a machine's real OpenSSH server, read from the
   systemd journal, with a Raspberry Pi install script;
+- publication to your own public GitHub repository, pulled centrally, so
+  contributing needs no access to anyone else's infrastructure;
 - central validation, replay protection, and hourly to yearly rollups;
 - a public dashboard: <https://gasserp.github.io/probing/>.
 
 Not yet available:
 
 - a downloadable deny list (plain text, nftables, ipset);
-- self-service onboarding: sensors outside the reference deployment upload to
-  its storage account with a service principal the maintainer creates.
+- a GitHub publishing option for the Cowrie decoy stack in
+  [`deploy/`](deploy/). Today only the OpenSSH host sensor supports it.
 
 Until those land, the published data is useful for research, not for
 automated blocking.

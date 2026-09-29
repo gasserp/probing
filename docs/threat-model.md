@@ -2,9 +2,9 @@
 
 ## Trust boundaries
 
-Adapters, server logs, contributor repositories, batch contents, repository
-paths, commit metadata, diagnostics, usernames, passwords, IP addresses, and
-HTTP paths are untrusted. The core agent, protected registry, validator code from the
+Adapters, server logs, contributor repositories (including batch
+repositories), batch contents, repository paths, commit metadata, diagnostics,
+usernames, passwords, IP addresses, and HTTP paths are untrusted. The core agent, protected registry, validator code from the
 default branch, acceptance ledger, and publication workflow are trusted.
 
 An adapter runs under a distinct OS identity with read-only access to only its
@@ -18,7 +18,9 @@ Only the core identity may access its signing and repository credential.
 | Adapter compromise | Separate OS users, narrow log permissions, no credential inheritance, no shell execution |
 | Log replay or rotation | Stable event IDs, durable source cursor, acknowledge only after durable commit |
 | Spoofed fields in real service logs | Anchor sshd messages and take the address from sshd's own suffix; select journal records by the journald-set `_SYSTEMD_UNIT` |
-| Upload credential outside Azure | Per-sensor service principal limited to create/read in the batch container, secret mounted only into the uploader, one-year expiry |
+| Contributor upload credential | Contributors never receive credentials for maintainer infrastructure. Their fine-grained GitHub token may only write contents of their own batch repository, is mounted only into the uploader, and expires within a year |
+| Hostile or broken contributor batch repository | Fetched by protected code, never executed. Bounded tree listing, at most 48 files per source per run within ingest's file budget, only well-formed paths under the source's own prefix and not yet accepted, content checked against the listed Git blob SHA. A failing repository is skipped with a warning, not fatal. Every file still passes signature, sequence, and chain checks |
+| Maintainer sensor outside Azure | Per-sensor service principal limited to create/read in the batch container, secret mounted only into the uploader, one-year expiry |
 | Fabricated sensor data | Visible per-source provenance; describe values as self-reported observations |
 | Batch replacement or replay | Signed source/epoch/sequence, previous-hash chain, independent central acceptance ledger |
 | Repository takeover | Reviewed registry changes, revocation (`enabled: false`), epoch recovery; challenge-based ownership proof and in-epoch key rotation are planned |

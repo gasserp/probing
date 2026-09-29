@@ -24,9 +24,12 @@ gap make staleness visible rather than silently dropping data.
 
 SQLite/WAL commits observations, sequence state, payload hashes, and exact
 signed envelope bytes. Outbox publication and receipts use atomic rename and
-directory `fsync`. Azure creation uses `If-None-Match: *`; an existing blob is
-success only when a bounded GET is byte-identical. The data workflow deletes a
-blob only after its acceptance commit is pushed.
+directory `fsync`. Azure creation uses `If-None-Match: *`, and GitHub
+creation uses the contents API without a `sha`, which likewise never replaces
+a file. Either way, an existing blob or file is success only when a bounded GET
+is byte-identical. The data workflow deletes an Azure blob only after its
+acceptance commit is pushed, and never deletes anything from a source's GitHub
+repository.
 
 Central acceptance simulates every batch against a deep copy of the ledger; a
 batch that would cross the 64 MiB serialized ledger limit is quarantined
