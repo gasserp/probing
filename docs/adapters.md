@@ -26,6 +26,13 @@ messages. It deliberately ignores separate `Invalid user` messages because
 OpenSSH can emit both messages for one authentication attempt. The systemd
 journal cursor is the durable source cursor.
 
+The username is attacker-chosen and sshd logs it verbatim, spaces included.
+The parser therefore anchors the whole message and takes the address from the
+final `from ADDR port N ssh2` that sshd appends, so a username such as
+`x from 192.0.2.1 port 22` cannot substitute its own address. Publickey
+failures may end with the key type and SHA256 fingerprint; certificate
+details, which embed client-chosen IDs, do not match and are skipped.
+
 ## Cowrie
 
 The Cowrie parser consumes JSON log entries and accepts only
@@ -55,5 +62,21 @@ the other adapter's files are absent from its mount namespace.
 It identifies files by device and inode, resumes at the last acknowledged byte
 offset, detects rotation or truncation, bounds lines before parsing, and waits
 for a durable core acknowledgement after every observation or checkpoint.
-OpenSSH will use a separate journal adapter because journal cursors are not file
-offsets.
+
+OpenSSH uses `probing-journal-adapter`, because journal cursors are not file
+offsets:
+
+```sh
+probing-journal-adapter -directory /journal -unit ssh.service -socket /ipc/adapter.sock
+```
+
+It runs `journalctl` (never a shell) against the host's `/var/log/journal`,
+mounted read-only, and selects records by `_SYSTEMD_UNIT`, a field journald
+sets and local processes cannot forge. It emits a checkpoint for every record
+and an observation for each failed login. On resume it first drains every
+stored record after the acknowledged cursor without `--follow`, then follows
+from the last one: `journalctl --follow` can skip records that sit in an
+earlier boot's journal file. Without a cursor it starts at the end of the
+journal. The [`deploy/openssh/`](../deploy/openssh/) stack runs it networkless
+under UID 65533, with the host's `systemd-journal` group as its only extra
+privilege.

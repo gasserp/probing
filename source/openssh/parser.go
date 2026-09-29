@@ -11,8 +11,15 @@ import (
 	"github.com/gasserp/probing/source"
 )
 
+// The username is attacker-chosen and may contain spaces, so the pattern is
+// anchored at both ends and the address is taken from the last "from ADDR
+// port N ssh2" that sshd itself appends. A username such as
+// "x from 192.0.2.1 port 22" therefore cannot substitute its own address.
+// The only accepted suffix is the key type and SHA256 fingerprint sshd adds
+// to publickey failures; certificate details, which embed client-chosen IDs,
+// do not match and are skipped.
 var failedAuthentication = regexp.MustCompile(
-	`^Failed (?:password|publickey|keyboard-interactive/pam) for (?:invalid user )?(\S+) from (\S+) port [0-9]+`,
+	`^Failed (?:password|publickey|keyboard-interactive/pam) for (?:invalid user )?(.+) from (\S+) port [0-9]+ ssh2(?:: [A-Za-z0-9-]+ SHA256:[A-Za-z0-9+/]+)?$`,
 )
 
 type journalRecord struct {
