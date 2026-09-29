@@ -19,11 +19,11 @@ Only the core identity may access its signing and repository credential.
 | Log replay or rotation | Stable event IDs, durable source cursor, acknowledge only after durable commit |
 | Fabricated sensor data | Visible per-source provenance; describe values as self-reported observations |
 | Batch replacement or replay | Signed source/epoch/sequence, previous-hash chain, independent central acceptance ledger |
-| Repository takeover | Challenge-based ownership proof, key rotation, revocation, epoch recovery |
+| Repository takeover | Reviewed registry changes, revocation (`enabled: false`), epoch recovery; challenge-based ownership proof and in-epoch key rotation are planned |
 | Workflow compromise | Never execute contributor code or workflows; validate data with fixed protected code |
 | Resource exhaustion | Pre-download tree/blob limits plus bounded frames, records, bytes, runtime, diagnostics, and quarantine |
 | Injection in UI or logs | Treat every external string as text; reject control characters and escape at every renderer |
-| Legitimate SSH activity | Exclude successful auth, legitimate usernames, service accounts, and trusted CIDRs before thresholds |
+| Legitimate SSH activity | Exclude successful auth, legitimate usernames, service accounts, and trusted CIDRs before promotion; collect only on non-production hosts |
 | Real passwords from real users | Publish passwords only for registry sources of kind `decoy`; unset kind defaults to `host` |
 | Legitimate HTTP paths | Require status plus signature and deployment-specific route exclusions |
 | Sensitive public path data | Strip query/fragment, apply content exclusions, cap length, and document residual risk |

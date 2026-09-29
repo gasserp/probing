@@ -12,8 +12,8 @@ computeProfile=spot-low-cost
 repositoryRef=<reviewed-full-commit-sha>
 ```
 
-Preview the deployment. A temporary dual-stack bootstrap can still be used for
-package installation, GitHub, and GHCR:
+Preview the deployment. `dual-stack` is the steady-state network profile (see
+below):
 
 ```sh
 az deployment sub what-if \
@@ -40,6 +40,21 @@ az deployment sub create \
     computeProfile="$computeProfile" \
     repositoryRef="$repositoryRef" \
     adminSshPublicKey="$(cat ~/.ssh/id_ed25519.pub)"
+```
+
+When the VM already exists, add `includeCloudInit=false` to both commands:
+Azure refuses to change `osProfile.customData` on an existing VM, and
+cloud-init only runs at first boot anyway. Code updates reach an existing VM
+through the `deploy` workflow described below, not through Bicep.
+
+Custom role names must be unique in the Entra ID directory. If a deployment
+fails with `RoleDefinitionWithSameNameExists`, a role with that name exists
+under a different ID, for example one created by hand. Remove its assignments
+and delete it, then redeploy:
+
+```sh
+az role definition list --custom-role-only true \
+  --query "[?starts_with(roleName, 'probing-collector-')].{roleName:roleName, id:name}" -o table
 ```
 
 Confirm cloud-init and every container succeeded:
@@ -123,20 +138,23 @@ consumption Logic App whose managed identity can only manage this VM. It calls
 the idempotent VM start operation every 15 minutes, so an evicted VM retries
 when Spot capacity becomes available while retaining its disk and IPv6 address.
 
-Capture the non-secret outputs for GitHub repository variables:
+Capture the non-secret outputs for GitHub repository variables (`-o json`
+matters if your default output format is `table`, which prints nothing for
+nested objects):
 
 ```sh
 az deployment sub show \
   --subscription "$subscription" \
   --name probing-first-collector \
-  --query properties.outputs
+  --query properties.outputs -o json
 ```
 
-The outputs map to `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
-`AZURE_SUBSCRIPTION_ID`, `PROBING_STORAGE_ACCOUNT`,
-`PROBING_STORAGE_CONTAINER`, and `PROBING_STORAGE_RESOURCE_GROUP`. No output is
-a credential. Extract the source epoch and public key with Azure Run Command;
-never print the private key:
+Two repositories consume them, each with its own identity: `probing-data`'s
+ingest workflow ([`docs/data-repository.md`](../docs/data-repository.md#ingestion-workflow),
+with `AZURE_CLIENT_ID` = `githubClientId`) and this repository's `deploy`
+workflow (below, with `AZURE_CLIENT_ID` = `githubDeployClientId`). No output
+is a credential. Extract the source epoch and public key with Azure Run
+Command; never print the private key:
 
 ```sh
 az vm run-command invoke \
@@ -177,11 +195,13 @@ One-time setup in the **`gasserp/probing`** repository (distinct from the
 
 1. Deploy `infra/main.bicep` so the deploy identity, its custom
    `probing-collector-deployer` role (start + Run Command on this VM only), and
-   its GitHub federation exist. The default federation subject is
-   `repo:gasserp/probing:environment:production`; override it with the
-   `githubDeploySubject` parameter if your tenant issues a different `sub`
-   claim (compare the working `probing-data` federated credential in
-   `modules/collector.bicep`).
+   its GitHub federation exist. The default federation subject,
+   `repo:gasserp@13432519/probing@1364631664:environment:production`, uses the
+   stable-ID form GitHub issues for this repository
+   (`owner@owner_id/repo@repo_id`), like the `probing-data` credential. For a
+   fork, override `githubDeploySubject` with your own owner and repository IDs.
+   If the workflow's Azure login fails, the error prints the `sub` GitHub
+   actually sent.
 2. Create a GitHub **Environment** named `production` in this repo (Settings →
    Environments). Add required reviewers there if you want an approval gate
    before each redeploy. The environment name must match `githubDeploySubject`.

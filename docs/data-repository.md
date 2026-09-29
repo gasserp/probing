@@ -81,8 +81,8 @@ reason code. Quarantine never copies hostile batch content.
 
 ## Ingestion workflow
 
-The `main` workflow in `probing-data` must have `id-token: write` and
-`contents: write`. It logs in with `azure/login`, downloads the configured Blob
+The `ingest` workflow (`.github/workflows/ingest.yml`) in `probing-data` runs
+hourly and must have `id-token: write` and `contents: write`. It logs in with `azure/login`, downloads the configured Blob
 container using `--auth-mode login`, checks out `gasserp/probing` at the ref
 named in `deploy/VERSION` on its `main` branch (a `probing_ref` dispatch input
 overrides it for one run), builds `./cmd/probing-ingest`, then runs:
@@ -97,8 +97,20 @@ probing-ingest \
 
 Exit `0` means every candidate was accepted or was a byte-identical replay.
 Exit `3` means valid candidates were processed but at least one candidate was
-quarantined; commit the generated ledger, rollups, and quarantine metadata, but
-leave the job visibly failed after cleanup. Any other nonzero exit is fatal.
+quarantined. The workflow treats `3` as success: it commits the generated
+ledger, rollups, and quarantine metadata, deletes only the accepted blobs, and
+the job stays green. Any other nonzero exit fails the job before anything is
+committed.
+
+A quarantine is therefore not visible in the Actions UI; watch
+`data/quarantine.json` instead. It is rebuilt on every run and lists only the
+blobs that run rejected, each with a reason code. Quarantined blobs stay in the
+container, so every hourly run downloads and re-evaluates them until they are
+accepted or the 30-day lifecycle rule removes them. Once the cause is fixed,
+for example by bringing acceptance onto the collector's wire format, the next
+run accepts them without a manual replay. An ingest commit that changes only
+`quarantine.json` while the rollups stop advancing means new batches are being
+rejected.
 
 Commit and push generated changes before deleting blobs. After the push
 succeeds, iterate only `.blobs[]` from `accepted.json` and delete those exact
@@ -107,16 +119,15 @@ names with `az storage blob delete --auth-mode login`. Never use
 lifecycle rule removes them. A crash before deletion produces a harmless
 byte-identical replay on the next run.
 
-Required GitHub repository variables are:
+Required GitHub repository variables in `probing-data` are:
 
 | Variable | Bicep output |
 |---|---|
-| `AZURE_CLIENT_ID` | `githubClientId` |
+| `AZURE_CLIENT_ID` | `githubClientId` (the ingest identity, not `githubDeployClientId`) |
 | `AZURE_TENANT_ID` | `githubTenantId` |
 | `AZURE_SUBSCRIPTION_ID` | `githubSubscriptionId` |
 | `PROBING_STORAGE_ACCOUNT` | `storageAccountName` |
 | `PROBING_STORAGE_CONTAINER` | `storageContainerName` |
-| `PROBING_STORAGE_RESOURCE_GROUP` | `resourceGroupName` |
 
 There are no account keys, SAS values, PATs, or other publication secrets.
 GitHub's branch subject is fixed to

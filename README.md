@@ -13,8 +13,9 @@ Collect on dev, test, and decoy systems. Block in production.
      honeypot;
    - `host`: a dev, test, or staging machine running real services.
 2. Adapters read local Nginx and Cowrie logs (OpenSSH journal support is
-   in progress). The agent flags repeated failed SSH logins and HTTP
-   path-traversal or sensitive-file requests.
+   in progress). The agent flags every failed SSH login, except for
+   usernames and networks you exclude, and HTTP path-traversal or
+   sensitive-file requests.
 3. Every hour the agent signs a batch of flagged observations with its
    Ed25519 key and uploads it.
 4. Central ingestion checks the signature, sequence number, and hash chain
@@ -43,7 +44,7 @@ Early. Working today:
 - adapter protocol, SSH and HTTP classifiers, signed hash-chained batches;
 - a hardened Docker Compose sensor with Nginx and Cowrie decoys;
 - central validation, replay protection, and hourly to yearly rollups;
-- a public dashboard.
+- a public dashboard: <https://gasserp.github.io/probing/>.
 
 Not yet available:
 
@@ -62,7 +63,7 @@ entries as evidence with an expiry date, not a verdict.
 
 ## Running a sensor
 
-- [`docs/agent.md`](docs/agent.md): agent configuration and thresholds
+- [`docs/agent.md`](docs/agent.md): agent configuration and exclusions
 - [`docs/adapters.md`](docs/adapters.md): supported log formats
 - [`deploy/`](deploy/): reference Docker Compose stack
 - [`infra/README.md`](infra/README.md): Azure reference deployment
