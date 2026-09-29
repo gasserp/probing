@@ -628,3 +628,159 @@ func writeRegistrySource(
 		t.Fatal(err)
 	}
 }
+
+// TestRunKeepsPasswordsAcrossAcceptances guards against cloneLedger dropping
+// the password dimension: every acceptance works on a copy of the ledger, so
+// a lost field silently erased all earlier passwords, and a host batch
+// accepted after a decoy batch left none at all.
+func TestRunKeepsPasswordsAcrossAcceptances(t *testing.T) {
+	repository := t.TempDir()
+	decoyPublic, decoyPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostPublic, hostPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const decoyEpoch = "5d6079de-20e0-4d4b-b955-40eac8f14df8"
+	const hostEpoch = "6e7180ef-31f1-4e5c-8a66-51fbf9025e09"
+	registry := Registry{
+		SchemaVersion: RegistrySchemaVersion,
+		Repository:    "gasserp/probing-data",
+		Sources: []SourceRegistration{
+			{
+				SourceID: "a-decoy", SourceEpoch: decoyEpoch, KeyID: "a-decoy-1",
+				PublicKey:  base64.RawURLEncoding.EncodeToString(decoyPublic),
+				BlobPrefix: "a-decoy/" + decoyEpoch + "/", Kind: SourceKindDecoy, Enabled: true,
+			},
+			{
+				SourceID: "b-host", SourceEpoch: hostEpoch, KeyID: "b-host-1",
+				PublicKey:  base64.RawURLEncoding.EncodeToString(hostPublic),
+				BlobPrefix: "b-host/" + hostEpoch + "/", Kind: SourceKindHost, Enabled: true,
+			},
+		},
+	}
+	registryData, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repository, "registry"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "registry", "sources.json"), registryData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	type batchSpec struct {
+		sourceID, epoch, keyID, sequence, previous, hour, password string
+		key                                                        ed25519.PrivateKey
+	}
+	write := func(input string, spec batchSpec) string {
+		t.Helper()
+		start, err := time.Parse(time.RFC3339, spec.hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		end := start.Add(time.Hour).Format(time.RFC3339)
+		batch, err := protocol.SignBatch(protocol.BatchPayload{
+			SchemaVersion:     protocol.BatchSchemaVersion,
+			SourceID:          spec.sourceID,
+			SourceEpoch:       spec.epoch,
+			Sequence:          spec.sequence,
+			PreviousBatchHash: spec.previous,
+			CreatedAt:         end,
+			ObservationWindow: protocol.TimeRange{Start: spec.hour, End: end},
+			ClassifierVersion: "probing-classifier-v2",
+			Records: []protocol.BatchRecord{{
+				Kind:            protocol.ObservationSSHAuthFailure,
+				SourceIP:        "2001:db8::1",
+				Username:        "root",
+				Password:        spec.password,
+				Count:           1,
+				FirstObservedAt: spec.hour,
+				LastObservedAt:  spec.hour,
+				HourlyBuckets:   []protocol.HourlyBucket{{Hour: spec.hour, Count: 1}},
+				RuleIDs:         []string{"ssh/all-attempts-v1"},
+			}},
+		}, spec.keyID, spec.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := publication.ValidateEnvelope(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(input, filepath.FromSlash(envelope.BlobName))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return envelope.PayloadHash
+	}
+	run := func(input string) {
+		t.Helper()
+		result, err := Run(context.Background(), Options{
+			RepositoryPath:     repository,
+			InputPath:          input,
+			RepositoryIdentity: "gasserp/probing-data",
+			Now:                time.Date(2026, 9, 10, 23, 0, 0, 0, time.UTC),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Quarantined != 0 {
+			t.Fatalf("unexpected quarantine: %#v", result)
+		}
+	}
+	passwords := func(granularity string) map[string]uint64 {
+		t.Helper()
+		var rollup RollupFile
+		readJSON(t, filepath.Join(repository, "data", "rollups", granularity+".json"), &rollup)
+		counts := map[string]uint64{}
+		for _, period := range rollup.Periods {
+			for _, value := range period.Passwords {
+				counts[value.Value] += value.Count
+			}
+		}
+		return counts
+	}
+
+	// One run: a decoy batch, then a host batch for the same hour.
+	first := t.TempDir()
+	decoyHash := write(first, batchSpec{
+		sourceID: "a-decoy", epoch: decoyEpoch, keyID: "a-decoy-1", sequence: "0",
+		hour: "2026-09-10T19:00:00Z", password: "123456", key: decoyPrivate,
+	})
+	write(first, batchSpec{
+		sourceID: "b-host", epoch: hostEpoch, keyID: "b-host-1", sequence: "0",
+		hour: "2026-09-10T19:00:00Z", password: "real-secret", key: hostPrivate,
+	})
+	run(first)
+	for _, granularity := range []string{"hourly", "daily", "monthly", "yearly"} {
+		got := passwords(granularity)
+		if got["123456"] != 1 || got["real-secret"] != 0 || len(got) != 1 {
+			t.Fatalf("%s passwords after decoy+host run = %v, want only 123456", granularity, got)
+		}
+	}
+
+	// A later run with another decoy batch adds to, not replaces, earlier ones.
+	second := t.TempDir()
+	write(second, batchSpec{
+		sourceID: "a-decoy", epoch: decoyEpoch, keyID: "a-decoy-1", sequence: "1", previous: decoyHash,
+		hour: "2026-09-10T20:00:00Z", password: "admin", key: decoyPrivate,
+	})
+	run(second)
+	if got := passwords("daily"); got["123456"] != 1 || got["admin"] != 1 {
+		t.Fatalf("daily passwords after second run = %v, want 123456 and admin", got)
+	}
+	if got := passwords("hourly"); got["123456"] != 1 || got["admin"] != 1 {
+		t.Fatalf("hourly passwords after second run = %v, want both hours kept", got)
+	}
+}

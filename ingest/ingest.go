@@ -520,17 +520,17 @@ func cloneLedger(ledger Ledger) Ledger {
 		clone.Sources[i].Batches = append([]LedgerBatch(nil), source.Batches...)
 	}
 	for key, period := range ledger.Periods {
-		clone.Periods[key] = PeriodLedger{
-			Total:             period.Total,
-			Sources:           cloneCounts(period.Sources),
-			SourcesOverflow:   period.SourcesOverflow,
-			SourceIPs:         cloneCounts(period.SourceIPs),
-			SourceIPsOverflow: period.SourceIPsOverflow,
-			Usernames:         cloneCounts(period.Usernames),
-			UsernamesOverflow: period.UsernamesOverflow,
-			Paths:             cloneCounts(period.Paths),
-			PathsOverflow:     period.PathsOverflow,
+		// Copy the whole struct first so scalar fields, including any added
+		// later, carry over; then replace every map with its own copy.
+		copied := period
+		copied.Sources = cloneCounts(period.Sources)
+		copied.SourceIPs = cloneCounts(period.SourceIPs)
+		copied.Usernames = cloneCounts(period.Usernames)
+		copied.Paths = cloneCounts(period.Paths)
+		if period.Passwords != nil {
+			copied.Passwords = cloneCounts(period.Passwords)
 		}
+		clone.Periods[key] = copied
 	}
 	return clone
 }
