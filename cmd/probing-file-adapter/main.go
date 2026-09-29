@@ -9,10 +9,10 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/gasserp/probing/adapter"
 	"github.com/gasserp/probing/fileadapter"
 	"github.com/gasserp/probing/protocol"
 	"github.com/gasserp/probing/source/cowrie"
@@ -20,7 +20,6 @@ import (
 )
 
 const version = "0.1.0"
-const maxSessionDiagnosticBytes = 8 * 1024
 
 func main() {
 	format := flag.String("format", "", "log format: nginx or cowrie")
@@ -47,60 +46,13 @@ func main() {
 	if *socketPath == "" {
 		err = errors.New("-socket is required")
 	} else {
-		err = serveSocket(ctx, *socketPath, func(connection net.Conn) error {
+		err = adapter.ServeSocket(ctx, *socketPath, os.Stderr, func(connection net.Conn) error {
 			return fileadapter.Run(ctx, config, parser, connection, connection)
 		})
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
-	}
-}
-
-func serveSocket(ctx context.Context, path string, serve func(net.Conn) error) error {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path || serve == nil {
-		return errors.New("absolute clean socket path and handler are required")
-	}
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSocket == 0 {
-			return errors.New("adapter socket path exists and is not a socket")
-		}
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("remove stale adapter socket: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect adapter socket: %w", err)
-	}
-	listener, err := net.Listen("unix", path)
-	if err != nil {
-		return fmt.Errorf("listen on adapter socket: %w", err)
-	}
-	defer listener.Close()
-	defer os.Remove(path)
-	if err := os.Chmod(path, 0o660); err != nil {
-		return fmt.Errorf("set adapter socket mode: %w", err)
-	}
-	go func() {
-		<-ctx.Done()
-		_ = listener.Close()
-	}()
-	for {
-		connection, err := listener.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("accept collector connection: %w", err)
-		}
-		sessionErr := serve(connection)
-		_ = connection.Close()
-		if sessionErr != nil && ctx.Err() == nil {
-			message := sessionErr.Error()
-			if len(message) > maxSessionDiagnosticBytes {
-				message = message[:maxSessionDiagnosticBytes]
-			}
-			fmt.Fprintf(os.Stderr, "adapter session stopped: %q\n", message)
-		}
 	}
 }
 

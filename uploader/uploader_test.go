@@ -308,3 +308,101 @@ func secondSignedEnvelope(t *testing.T) []byte {
 	}
 	return data
 }
+
+func TestUploaderUsesClientCredentialsOutsideAzure(t *testing.T) {
+	outbox := t.TempDir()
+	data := signedEnvelope(t)
+	envelope, err := publication.ValidateEnvelope(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outbox, envelope.FileName), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secretFile, []byte("s3cr3t~value\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	tokenRequests := 0
+	entra := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		tokenRequests++
+		if err := request.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		if request.Method != http.MethodPost ||
+			request.PostForm.Get("grant_type") != "client_credentials" ||
+			request.PostForm.Get("client_id") != "22222222-2222-2222-2222-222222222222" ||
+			request.PostForm.Get("client_secret") != "s3cr3t~value" ||
+			request.PostForm.Get("scope") != "https://storage.azure.com/.default" {
+			t.Errorf("unexpected token request: %s %v", request.Method, request.PostForm)
+		}
+		fmt.Fprint(writer, `{"token_type":"Bearer","expires_in":3599,"access_token":"sp-token"}`)
+	}))
+	defer entra.Close()
+	storage := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer sp-token" {
+			t.Errorf("unexpected authorization %q", request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("ETag", `"0x8DABC123"`)
+		writer.WriteHeader(http.StatusCreated)
+	}))
+	defer storage.Close()
+	process, err := New(Config{
+		Account:          "probingtest",
+		Container:        "pending-batches",
+		OutboxDir:        outbox,
+		TenantID:         "11111111-1111-1111-1111-111111111111",
+		ClientID:         "22222222-2222-2222-2222-222222222222",
+		ClientSecretFile: secretFile,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if process.tokenURL != "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token" {
+		t.Fatalf("token URL = %q", process.tokenURL)
+	}
+	process.tokenURL = entra.URL
+	process.tokenClient = entra.Client()
+	process.metadataURL = "http://127.0.0.1:1/unreachable"
+	process.storageBaseURL = storage.URL
+	process.storageClient = storage.Client()
+	if err := process.UploadOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if tokenRequests != 1 {
+		t.Fatalf("token requests = %d, want 1", tokenRequests)
+	}
+	if _, err := os.Stat(filepath.Join(outbox, publication.ReceiptFileName(envelope.FileName))); err != nil {
+		t.Fatalf("receipt missing: %v", err)
+	}
+}
+
+func TestNewRejectsIncompleteClientCredentials(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secretFile, []byte("value"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	emptyFile := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(emptyFile, []byte("\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	tenant := "11111111-1111-1111-1111-111111111111"
+	client := "22222222-2222-2222-2222-222222222222"
+	for name, config := range map[string]Config{
+		"missing tenant": {ClientID: client, ClientSecretFile: secretFile},
+		"missing secret": {TenantID: tenant, ClientID: client},
+		"empty secret":   {TenantID: tenant, ClientID: client, ClientSecretFile: emptyFile},
+		"uppercase GUID": {TenantID: tenant, ClientID: "22222222-2222-2222-2222-22222222222A", ClientSecretFile: secretFile},
+		"secret only":    {ClientSecretFile: secretFile},
+		"missing client": {TenantID: tenant, ClientSecretFile: secretFile},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config.Account = "probingtest"
+			config.Container = "pending-batches"
+			config.OutboxDir = t.TempDir()
+			if _, err := New(config); err == nil {
+				t.Fatal("New() accepted incomplete client credentials")
+			}
+		})
+	}
+}

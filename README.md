@@ -12,8 +12,8 @@ Collect on dev, test, and decoy systems. Block in production.
    - `decoy`: a dedicated host with no legitimate users, such as a Cowrie
      honeypot;
    - `host`: a dev, test, or staging machine running real services.
-2. Adapters read local Nginx and Cowrie logs (OpenSSH journal support is
-   in progress). The agent flags every failed SSH login, except for
+2. Adapters read local Nginx and Cowrie logs, or the systemd journal of a
+   real OpenSSH server. The agent flags every failed SSH login, except for
    usernames and networks you exclude, and HTTP path-traversal or
    sensitive-file requests.
 3. Every hour the agent signs a batch of flagged observations with its
@@ -43,13 +43,16 @@ Early. Working today:
 
 - adapter protocol, SSH and HTTP classifiers, signed hash-chained batches;
 - a hardened Docker Compose sensor with Nginx and Cowrie decoys;
+- a `host` sensor for a machine's real OpenSSH server, read from the
+  systemd journal, with a Raspberry Pi install script;
 - central validation, replay protection, and hourly to yearly rollups;
 - a public dashboard: <https://gasserp.github.io/probing/>.
 
 Not yet available:
 
 - a downloadable deny list (plain text, nftables, ipset);
-- onboarding for sensors outside the reference Azure deployment.
+- self-service onboarding: sensors outside the reference deployment upload to
+  its storage account with a service principal the maintainer creates.
 
 Until those land, the published data is useful for research, not for
 automated blocking.
@@ -66,6 +69,8 @@ entries as evidence with an expiry date, not a verdict.
 - [`docs/agent.md`](docs/agent.md): agent configuration and exclusions
 - [`docs/adapters.md`](docs/adapters.md): supported log formats
 - [`deploy/`](deploy/): reference Docker Compose stack
+- [`docs/raspberry-pi.md`](docs/raspberry-pi.md): Raspberry Pi `host` sensor
+  on a real OpenSSH server
 - [`infra/README.md`](infra/README.md): Azure reference deployment
 
 Exclude your own usernames, service accounts, and trusted networks in the

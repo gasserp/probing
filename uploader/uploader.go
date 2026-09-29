@@ -22,22 +22,33 @@ import (
 )
 
 const (
-	metadataEndpoint  = "http://169.254.169.254/metadata/identity/oauth2/token"
-	storageAPIVersion = "2023-11-03"
-	maxTokenBytes     = 32 << 10
-	maxResponseBytes  = 4 << 10
+	metadataEndpoint     = "http://169.254.169.254/metadata/identity/oauth2/token"
+	entraTokenEndpoint   = "https://login.microsoftonline.com/%s/oauth2/v2.0/token"
+	storageScope         = "https://storage.azure.com/.default"
+	storageAPIVersion    = "2023-11-03"
+	maxTokenBytes        = 32 << 10
+	maxResponseBytes     = 4 << 10
+	maxClientSecretBytes = 1 << 10
 )
 
 var (
 	accountPattern   = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 	containerPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$`)
+	guidPattern      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
+// Config selects one of two credentials. Without ClientID the uploader uses
+// the Azure VM managed identity. With ClientID it uses an Entra service
+// principal's client secret, read from ClientSecretFile, for sensors that run
+// outside Azure and have no metadata endpoint.
 type Config struct {
-	Account      string
-	Container    string
-	OutboxDir    string
-	PollInterval time.Duration
+	Account          string
+	Container        string
+	OutboxDir        string
+	PollInterval     time.Duration
+	TenantID         string
+	ClientID         string
+	ClientSecretFile string
 }
 
 type Uploader struct {
@@ -45,6 +56,9 @@ type Uploader struct {
 	metadataClient *http.Client
 	storageClient  *http.Client
 	metadataURL    string
+	tokenClient    *http.Client
+	tokenURL       string
+	clientSecret   string
 	storageBaseURL string
 	now            func() time.Time
 
@@ -69,6 +83,17 @@ func New(config Config) (*Uploader, error) {
 	if config.PollInterval < time.Second || config.PollInterval > time.Hour {
 		return nil, errors.New("poll interval must be between one second and one hour")
 	}
+	var clientSecret string
+	if config.ClientID != "" || config.TenantID != "" || config.ClientSecretFile != "" {
+		if !guidPattern.MatchString(config.TenantID) || !guidPattern.MatchString(config.ClientID) {
+			return nil, errors.New("tenant and client IDs must be lowercase GUIDs")
+		}
+		secret, err := readClientSecret(config.ClientSecretFile)
+		if err != nil {
+			return nil, err
+		}
+		clientSecret = secret
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	client := &http.Client{
@@ -80,9 +105,32 @@ func New(config Config) (*Uploader, error) {
 		metadataClient: client,
 		storageClient:  client,
 		metadataURL:    metadataEndpoint,
+		tokenClient:    client,
+		tokenURL:       fmt.Sprintf(entraTokenEndpoint, config.TenantID),
+		clientSecret:   clientSecret,
 		storageBaseURL: "https://" + config.Account + ".blob.core.windows.net",
 		now:            time.Now,
 	}, nil
+}
+
+func readClientSecret(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("client secret file is required with a client ID")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open client secret file: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxClientSecretBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read client secret file: %w", err)
+	}
+	secret := strings.TrimRight(string(data), "\r\n")
+	if secret == "" || len(data) > maxClientSecretBytes || strings.ContainsAny(secret, "\x00\r\n") {
+		return "", errors.New("client secret file must contain one non-empty line")
+	}
+	return secret, nil
 }
 
 func (u *Uploader) Run(ctx context.Context) error {
@@ -245,9 +293,31 @@ func (u *Uploader) token(ctx context.Context) (string, error) {
 	if u.accessToken != "" && u.now().UTC().Add(5*time.Minute).Before(u.tokenExpiry) {
 		return u.accessToken, nil
 	}
+	var (
+		token  string
+		expiry time.Time
+		err    error
+	)
+	if u.config.ClientID != "" {
+		token, expiry, err = u.clientCredentialsToken(ctx)
+	} else {
+		token, expiry, err = u.managedIdentityToken(ctx)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !expiry.After(u.now().UTC().Add(time.Minute)) {
+		return "", errors.New("access token expires too soon")
+	}
+	u.accessToken = token
+	u.tokenExpiry = expiry
+	return u.accessToken, nil
+}
+
+func (u *Uploader) managedIdentityToken(ctx context.Context) (string, time.Time, error) {
 	endpoint, err := url.Parse(u.metadataURL)
 	if err != nil {
-		return "", errors.New("metadata endpoint is invalid")
+		return "", time.Time{}, errors.New("metadata endpoint is invalid")
 	}
 	query := endpoint.Query()
 	query.Set("api-version", "2018-02-01")
@@ -255,24 +325,12 @@ func (u *Uploader) token(ctx context.Context) (string, error) {
 	endpoint.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return "", fmt.Errorf("create metadata request: %w", err)
+		return "", time.Time{}, fmt.Errorf("create metadata request: %w", err)
 	}
 	request.Header.Set("Metadata", "true")
-	response, err := u.metadataClient.Do(request)
+	data, err := u.tokenResponse(u.metadataClient, request, "managed identity")
 	if err != nil {
-		return "", fmt.Errorf("request managed identity token: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
-		return "", fmt.Errorf("managed identity endpoint returned HTTP %d", response.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxTokenBytes+1))
-	if err != nil {
-		return "", fmt.Errorf("read managed identity token: %w", err)
-	}
-	if len(data) > maxTokenBytes {
-		return "", errors.New("managed identity response exceeds the size limit")
+		return "", time.Time{}, err
 	}
 	var tokenResponse struct {
 		AccessToken string `json:"access_token"`
@@ -280,23 +338,78 @@ func (u *Uploader) token(ctx context.Context) (string, error) {
 		TokenType   string `json:"token_type"`
 	}
 	if err := json.Unmarshal(data, &tokenResponse); err != nil {
-		return "", fmt.Errorf("decode managed identity token: %w", err)
+		return "", time.Time{}, fmt.Errorf("decode managed identity token: %w", err)
 	}
-	if tokenResponse.AccessToken == "" || len(tokenResponse.AccessToken) > 16<<10 ||
-		!strings.EqualFold(tokenResponse.TokenType, "Bearer") {
-		return "", errors.New("managed identity token response is invalid")
+	if !validBearer(tokenResponse.AccessToken, tokenResponse.TokenType) {
+		return "", time.Time{}, errors.New("managed identity token response is invalid")
 	}
 	expiresUnix, err := parseUnixSeconds(tokenResponse.ExpiresOn)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
-	expiry := time.Unix(expiresUnix, 0).UTC()
-	if !expiry.After(u.now().UTC().Add(time.Minute)) {
-		return "", errors.New("managed identity token expires too soon")
+	return tokenResponse.AccessToken, time.Unix(expiresUnix, 0).UTC(), nil
+}
+
+func (u *Uploader) clientCredentialsToken(ctx context.Context) (string, time.Time, error) {
+	endpoint, err := url.Parse(u.tokenURL)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" {
+		return "", time.Time{}, errors.New("token endpoint is invalid")
 	}
-	u.accessToken = tokenResponse.AccessToken
-	u.tokenExpiry = expiry
-	return u.accessToken, nil
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	form.Set("client_id", u.config.ClientID)
+	form.Set("client_secret", u.clientSecret)
+	form.Set("scope", storageScope)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("create token request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	requested := u.now().UTC()
+	data, err := u.tokenResponse(u.tokenClient, request, "Entra token endpoint")
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	var tokenResponse struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+		TokenType   string `json:"token_type"`
+	}
+	if err := json.Unmarshal(data, &tokenResponse); err != nil {
+		return "", time.Time{}, fmt.Errorf("decode Entra token: %w", err)
+	}
+	if !validBearer(tokenResponse.AccessToken, tokenResponse.TokenType) ||
+		tokenResponse.ExpiresIn <= 0 || tokenResponse.ExpiresIn > 24*60*60 {
+		return "", time.Time{}, errors.New("Entra token response is invalid")
+	}
+	return tokenResponse.AccessToken, requested.Add(time.Duration(tokenResponse.ExpiresIn) * time.Second), nil
+}
+
+// tokenResponse never includes the response body in errors: an Entra error
+// body can echo request details, and the metadata body is not needed to
+// diagnose a status code.
+func (u *Uploader) tokenResponse(client *http.Client, request *http.Request, issuer string) ([]byte, error) {
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request %s token: %w", issuer, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return nil, fmt.Errorf("%s returned HTTP %d", issuer, response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxTokenBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s token: %w", issuer, err)
+	}
+	if len(data) > maxTokenBytes {
+		return nil, fmt.Errorf("%s response exceeds the size limit", issuer)
+	}
+	return data, nil
+}
+
+func validBearer(token, tokenType string) bool {
+	return token != "" && len(token) <= 16<<10 && strings.EqualFold(tokenType, "Bearer")
 }
 
 func (u *Uploader) blobURL(blobName string) (string, error) {

@@ -17,6 +17,8 @@ Only the core identity may access its signing and repository credential.
 | --- | --- |
 | Adapter compromise | Separate OS users, narrow log permissions, no credential inheritance, no shell execution |
 | Log replay or rotation | Stable event IDs, durable source cursor, acknowledge only after durable commit |
+| Spoofed fields in real service logs | Anchor sshd messages and take the address from sshd's own suffix; select journal records by the journald-set `_SYSTEMD_UNIT` |
+| Upload credential outside Azure | Per-sensor service principal limited to create/read in the batch container, secret mounted only into the uploader, one-year expiry |
 | Fabricated sensor data | Visible per-source provenance; describe values as self-reported observations |
 | Batch replacement or replay | Signed source/epoch/sequence, previous-hash chain, independent central acceptance ledger |
 | Repository takeover | Reviewed registry changes, revocation (`enabled: false`), epoch recovery; challenge-based ownership proof and in-epoch key rotation are planned |

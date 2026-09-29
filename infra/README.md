@@ -222,6 +222,10 @@ The workflow logs in with OIDC (no stored secret), starts the VM if Spot
 eviction deallocated it, runs the migration, and fails unless the script prints
 its completion sentinel.
 
+Sensors outside Azure, such as the Raspberry Pi `host` sensor, upload to the
+same container with their own service principal instead of a managed identity;
+see [`docs/raspberry-pi.md`](../docs/raspberry-pi.md#4-create-the-upload-credential-workstation).
+
 Standard_LRS capacity, Blob operations, public endpoint egress, the VM, IPv6
 address, and the Spot-restarter Logic App can all incur charges. The 30-day
 lifecycle policy is a cost ceiling, not an archival promise.

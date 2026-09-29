@@ -18,16 +18,23 @@ func main() {
 	container := flag.String("container", "", "Azure Blob container name")
 	outbox := flag.String("outbox", "/outbox", "shared outbox directory")
 	poll := flag.Duration("poll", 15*time.Second, "outbox polling interval")
+	tenantID := flag.String("tenant-id", "", "Entra tenant ID; omit to use the Azure VM managed identity")
+	clientID := flag.String("client-id", "", "Entra service principal client ID")
+	clientSecretFile := flag.String("client-secret-file", "", "file holding the service principal client secret")
 	flag.Parse()
 	if *account == "" || *container == "" {
-		fmt.Fprintln(os.Stderr, "usage: probing-uploader -account <name> -container <name> [-outbox <path>]")
+		fmt.Fprintln(os.Stderr, "usage: probing-uploader -account <name> -container <name> [-outbox <path>]"+
+			" [-tenant-id <id> -client-id <id> -client-secret-file <path>]")
 		os.Exit(2)
 	}
 	process, err := uploader.New(uploader.Config{
-		Account:      *account,
-		Container:    *container,
-		OutboxDir:    *outbox,
-		PollInterval: *poll,
+		Account:          *account,
+		Container:        *container,
+		OutboxDir:        *outbox,
+		PollInterval:     *poll,
+		TenantID:         *tenantID,
+		ClientID:         *clientID,
+		ClientSecretFile: *clientSecretFile,
 	})
 	if err != nil {
 		log.Printf("probing-uploader configuration failed: %v", err)
