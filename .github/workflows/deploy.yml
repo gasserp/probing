@@ -7,6 +7,10 @@ name: deploy
 # source. Run it from the Actions tab; leave "ref" blank to deploy the ref
 # pinned in deploy/VERSION (default: main / latest), or type a branch, tag, or
 # full commit SHA to deploy a specific version.
+#
+# deploy/VERSION on main also drives probing-data's ingest workflow, which
+# builds the acceptance binary from it. A ref whose batch wire format is newer
+# than that is refused, since acceptance would quarantine every batch.
 
 on:
   workflow_dispatch:
@@ -35,6 +39,8 @@ jobs:
       VM_NAME: ${{ vars.PROBING_VM_NAME || 'probing-collector-01' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Resolve deploy ref
         id: ref
@@ -59,6 +65,31 @@ jobs:
             *..*|*/../*|*/) echo "::error::Invalid ref path '$ref'"; exit 1 ;;
           esac
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Check compatibility with probing-data acceptance
+        id: compat
+        env:
+          DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          # probing-data's ingest workflow builds probing-ingest from the ref in
+          # deploy/VERSION on main. A collector whose batch wire format
+          # (protocol/, schemas/) is newer than that binary gets every batch
+          # quarantined as invalid_envelope, so refuse to deploy it.
+          git fetch --quiet origin "$DEPLOY_REF"
+          deploy_sha="$(git rev-parse 'FETCH_HEAD^{commit}')"
+          accept_ref="$(git show origin/main:deploy/VERSION | tr -d '[:space:]')"
+          git fetch --quiet origin "$accept_ref"
+          accept_sha="$(git rev-parse 'FETCH_HEAD^{commit}')"
+          echo "Deploy:     $DEPLOY_REF -> $deploy_sha"
+          echo "Acceptance: $accept_ref (deploy/VERSION on main) -> $accept_sha"
+          if [ "$deploy_sha" != "$accept_sha" ] &&
+             ! git merge-base --is-ancestor "$deploy_sha" "$accept_sha" &&
+             ! git diff --quiet "$accept_sha" "$deploy_sha" -- protocol schemas; then
+            echo "::error::$DEPLOY_REF ($deploy_sha) changes the batch wire format beyond what probing-data acceptance builds ($accept_ref -> $accept_sha); every batch would be quarantined. Land it on main with deploy/VERSION naming it (the default 'main' already does) — acceptance follows on its next hourly run — then deploy."
+            exit 1
+          fi
+          echo "sha=$deploy_sha" >> "$GITHUB_OUTPUT"
 
       - name: Validate required configuration
         env:
@@ -95,11 +126,14 @@ jobs:
         id: run
         env:
           DEPLOY_REF: ${{ steps.ref.outputs.ref }}
+          DEPLOY_SHA: ${{ steps.compat.outputs.sha }}
           PROBING_STORAGE_ACCOUNT: ${{ vars.PROBING_STORAGE_ACCOUNT }}
           PROBING_STORAGE_CONTAINER: ${{ vars.PROBING_STORAGE_CONTAINER }}
         run: |
           set -euo pipefail
-          echo "Deploying ref '$DEPLOY_REF' to $VM_NAME (resource group $RESOURCE_GROUP)"
+          # Deploy the exact commit the compatibility check approved, not the
+          # ref name, which could move before the VM resolves it.
+          echo "Deploying '$DEPLOY_REF' ($DEPLOY_SHA) to $VM_NAME (resource group $RESOURCE_GROUP)"
           # Azure Run Command exports each --parameters entry as an environment
           # variable (and rejects hyphenated names like "storage-account"), so it
           # cannot pass migrate-v2.sh its --flag-style arguments. Wrap the script
@@ -114,7 +148,7 @@ jobs:
             # reset any drift to a pristine tree first.
             echo 'if [ -d /opt/probing/.git ]; then git -C /opt/probing reset --hard -q && git -C /opt/probing clean -fdq; fi'
             printf "/bin/sh -s -- --storage-account %q --storage-container %q --repository-ref %q <<'PROBING_MIGRATE_EOF'\n" \
-              "$PROBING_STORAGE_ACCOUNT" "$PROBING_STORAGE_CONTAINER" "$DEPLOY_REF"
+              "$PROBING_STORAGE_ACCOUNT" "$PROBING_STORAGE_CONTAINER" "$DEPLOY_SHA"
             cat infra/migrate-v2.sh
             echo "PROBING_MIGRATE_EOF"
           } > "$wrapper"

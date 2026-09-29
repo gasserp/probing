@@ -161,6 +161,17 @@ from source, so the git ref *is* the artefact version. To change the default
 deployed version, edit `deploy/VERSION` in a PR (pin it to a reviewed full SHA
 for production).
 
+`deploy/VERSION` on `main` is also what `probing-data`'s ingest workflow builds
+its acceptance binary from, so the collector and acceptance move together. The
+collector must never emit a batch wire format (`protocol/`, `schemas/`) that
+acceptance cannot validate — acceptance quarantines every such batch as
+`invalid_envelope` and the rollups freeze. The workflow resolves the requested
+ref to a commit and refuses to deploy it unless it matches the acceptance
+commit, is an ancestor of it (a rollback), or leaves `protocol/` and `schemas/`
+unchanged. Land wire-format changes on `main` first; acceptance picks them up on
+its next hourly run, and any batches quarantined in between are accepted then,
+because quarantined blobs stay in the container.
+
 One-time setup in the **`gasserp/probing`** repository (distinct from the
 `probing-data` variables above):
 

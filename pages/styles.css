@@ -237,6 +237,7 @@ h2 {
   text-transform: uppercase;
   white-space: nowrap;
 }
+.metric-card .subtle { margin: .6rem 0 0; font-size: .75rem; }
 .panel .subtle { margin: .55rem 0 0; font-size: .75rem; line-height: 1.5; }
 .chart { min-height: 15rem; margin-top: 1.25rem; }
 .chart svg { display: block; width: 100%; height: auto; }

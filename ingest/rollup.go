@@ -16,7 +16,10 @@ const (
 	periodRetention          = 31 * 24 * time.Hour
 )
 
-func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
+// applyPayload adds a batch to the period accumulators. Attempted passwords
+// are counted only when publishPasswords is set, which is reserved for decoy
+// sources; other sources' passwords are accepted but never published.
+func applyPayload(ledger *Ledger, payload protocol.BatchPayload, publishPasswords bool) error {
 	for _, record := range payload.Records {
 		for _, bucket := range record.HourlyBuckets {
 			hour, err := time.Parse(time.RFC3339Nano, bucket.Hour)
@@ -60,7 +63,7 @@ func applyPayload(ledger *Ledger, payload protocol.BatchPayload) error {
 					if err := addMapCount(accumulator.Usernames, &accumulator.UsernamesOverflow, record.Username, bucket.Count); err != nil {
 						return err
 					}
-					if record.Password != "" {
+					if publishPasswords && record.Password != "" {
 						if err := addMapCount(accumulator.Passwords, &accumulator.PasswordsOverflow, record.Password, bucket.Count); err != nil {
 							return err
 						}
@@ -164,6 +167,10 @@ func buildRollup(ledger Ledger, granularity string) (RollupFile, error) {
 		}
 	}
 	sort.Strings(keys)
+	kinds := make(map[string]string, len(ledger.Sources))
+	for _, source := range ledger.Sources {
+		kinds[source.SourceID+"/"+source.SourceEpoch] = source.Kind
+	}
 	for _, key := range keys {
 		start, end, err := periodRange(granularity, key)
 		if err != nil {
@@ -174,7 +181,7 @@ func buildRollup(ledger Ledger, granularity string) (RollupFile, error) {
 			Start:     start.Format(time.RFC3339),
 			End:       end.Format(time.RFC3339),
 			Total:     accumulator.Total,
-			Sources:   topSources(accumulator.Sources),
+			Sources:   topSources(accumulator.Sources, kinds),
 			SourceIPs: topValues(accumulator.SourceIPs),
 			Usernames: topValues(accumulator.Usernames),
 			Passwords: topValues(accumulator.Passwords),
@@ -227,16 +234,21 @@ func topValues(values map[string]uint64) []ValueTotal {
 	return output
 }
 
-func topSources(values map[string]uint64) []SourceTotal {
+func topSources(values map[string]uint64, kinds map[string]string) []SourceTotal {
 	output := make([]SourceTotal, 0, len(values))
 	for value, count := range values {
 		parts := strings.SplitN(value, "/", 2)
 		if len(parts) != 2 {
 			continue
 		}
+		kind := kinds[value]
+		if kind == "" {
+			kind = SourceKindHost
+		}
 		output = append(output, SourceTotal{
 			SourceID:    parts[0],
 			SourceEpoch: parts[1],
+			Kind:        kind,
 			Count:       count,
 		})
 	}

@@ -29,9 +29,13 @@ journal cursor is the durable source cursor.
 ## Cowrie
 
 The Cowrie parser consumes JSON log entries and accepts only
-`cowrie.login.failed`. Additional Cowrie fields are ignored; passwords and
-session contents are never copied into normalized observations. The eventual
-file tailer supplies a stable file cursor.
+`cowrie.login.failed`. It copies the source IP, username, and attempted
+password. The password is dropped when it is empty, longer than 256 bytes, not
+valid UTF-8, or contains control characters. Other Cowrie fields, including
+session contents, are ignored. Central ingestion publishes passwords only for
+sources registered as `decoy` (see
+[`data-repository.md`](data-repository.md#source-kinds)). The file tailer
+supplies a stable file cursor.
 
 ## Installation boundary
 

@@ -8,7 +8,8 @@ prove the event happened, establish who controlled an IP address, infer intent,
 or show compromise. Classifier rules can produce false positives.
 
 Accepted promoted observations intentionally preserve exact source IPs,
-attempted SSH usernames, and eligible HTTP paths. HTTP query strings and
+attempted SSH usernames, and eligible HTTP paths. Attempted SSH passwords are
+published only for sources registered as `decoy`. HTTP query strings and
 fragments are removed before durable storage. Operators must treat even paths
 and usernames as potentially personal or hostile text. The dashboard inserts
 all values with `textContent` and loads no third-party scripts.

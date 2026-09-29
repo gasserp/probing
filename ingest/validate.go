@@ -33,6 +33,9 @@ func validateLedger(ledger Ledger, repository string) error {
 			return errors.New("acceptance ledger contains duplicate source epochs")
 		}
 		seenSources[key] = struct{}{}
+		if source.Kind != "" && source.Kind != SourceKindDecoy && source.Kind != SourceKindHost {
+			return fmt.Errorf("ledger source %d has an unknown kind", i)
+		}
 		if len(source.Batches) > MaxAcceptedBatches {
 			return errors.New("acceptance ledger source exceeds the batch limit")
 		}

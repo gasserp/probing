@@ -50,8 +50,9 @@ updates use the stable event ID so adding a later rule does not increase counts.
 Adapters emit only failed authentications. The classifier excludes configured
 legitimate usernames and trusted CIDRs before they affect threshold state. When
 the source captures the attempted password (Cowrie does; the OpenSSH journal
-never exposes it) it is retained on the observation as an optional field and
-aggregated into its own published dimension alongside usernames. A password
+never exposes it) it is retained on the observation as an optional field.
+Central ingestion aggregates it into its own published dimension only when the
+registry marks the source as `decoy`. A password
 that is empty, oversized, or non-printable is dropped without discarding the
 failed authentication it accompanies.
 Events for a source must arrive in event-time order; the future ingestion layer
@@ -126,7 +127,8 @@ and the local store refuses to create more than 128 unpublished batches.
 ## Registration and recovery
 
 A registry entry reserves a unique source ID and records its public repository,
-branch, active epoch, public signing key, classifier policy, and trust state.
+branch, active epoch, public signing key, classifier policy, kind (`decoy` or
+`host`), and trust state.
 Repository control is proven using a challenge nonce committed at a fixed path.
 
 Key rotation requires old-key and new-key signatures. Lost-key recovery creates

@@ -28,11 +28,28 @@ data/rollups/yearly.json          # generated
       "key_id": "gasserp-azure-weu-01-ed25519-1",
       "public_key": "base64url-without-padding-of-the-raw-32-byte-ed25519-key",
       "blob_prefix": "gasserp-azure-weu-01/replace-with-persistent-lowercase-uuid/",
+      "kind": "decoy",
       "enabled": true
     }
   ]
 }
 ```
+
+### Source kinds
+
+`kind` classifies the sensor and is set by the registry maintainer, not by
+the sensor:
+
+| Kind | Meaning | Passwords published |
+|---|---|---|
+| `decoy` | Dedicated host with no legitimate users (e.g. Cowrie) | Yes |
+| `host` | Dev, test, or staging machine running real services | No |
+
+An omitted `kind` is treated as `host`. Any other value makes the registry
+invalid. Batches from a `host` source are accepted in full, but their
+passwords are not added to the ledger or rollups. A kind change applies to
+batches accepted after the change; passwords already published from a source
+reclassified away from `decoy` require the emergency deletion procedure.
 
 Before a live source key exists, the accepted bootstrap registry is:
 
@@ -66,8 +83,9 @@ reason code. Quarantine never copies hostile batch content.
 
 The `main` workflow in `probing-data` must have `id-token: write` and
 `contents: write`. It logs in with `azure/login`, downloads the configured Blob
-container using `--auth-mode login`, checks out `gasserp/probing`, builds
-`./cmd/probing-ingest`, then runs:
+container using `--auth-mode login`, checks out `gasserp/probing` at the ref
+named in `deploy/VERSION` on its `main` branch (a `probing_ref` dispatch input
+overrides it for one run), builds `./cmd/probing-ingest`, then runs:
 
 ```sh
 probing-ingest \
@@ -115,9 +133,9 @@ not. Each batch record is added once regardless of how many `rule_ids` it
 contains.
 
 UTC hourly buckets feed hourly, daily, monthly, and yearly accumulators.
-Generated public files expose totals, source ID/epoch provenance, and the top
-100 exact source IPs, attempted usernames, attempted passwords, and eligible
-paths per period. Passwords are only present for sources that report the
-attempted secret (such as Cowrie); the OpenSSH journal never exposes it.
+Generated public files expose totals, source ID/epoch/kind provenance, and the
+top 100 exact source IPs, attempted usernames, attempted passwords, and
+eligible paths per period. Passwords come only from `decoy` sources that
+capture them (such as Cowrie); the OpenSSH journal never exposes them.
 Ledger and generated files are written through `fsync` plus atomic rename, with
 the ledger written last.
