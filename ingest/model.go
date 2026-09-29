@@ -8,6 +8,15 @@ const (
 	PublicLabel             = "self-reported suspected probes"
 )
 
+// Source kinds. A decoy is a dedicated host with no legitimate users, so
+// every attempt it records is unsolicited; only decoys publish attempted
+// passwords. A host is a dev, test, or staging machine running real
+// services. A registration without a kind is treated as a host.
+const (
+	SourceKindDecoy = "decoy"
+	SourceKindHost  = "host"
+)
+
 type Registry struct {
 	SchemaVersion string               `json:"schema_version"`
 	Repository    string               `json:"repository"`
@@ -20,6 +29,7 @@ type SourceRegistration struct {
 	KeyID       string `json:"key_id"`
 	PublicKey   string `json:"public_key"`
 	BlobPrefix  string `json:"blob_prefix"`
+	Kind        string `json:"kind,omitempty"`
 	Enabled     bool   `json:"enabled"`
 }
 
@@ -34,6 +44,7 @@ type Ledger struct {
 type LedgerSource struct {
 	SourceID     string        `json:"source_id"`
 	SourceEpoch  string        `json:"source_epoch"`
+	Kind         string        `json:"kind,omitempty"`
 	NextSequence string        `json:"next_sequence"`
 	PreviousHash string        `json:"previous_hash"`
 	Batches      []LedgerBatch `json:"batches"`
@@ -81,6 +92,7 @@ type RollupPeriod struct {
 type SourceTotal struct {
 	SourceID    string `json:"source_id"`
 	SourceEpoch string `json:"source_epoch"`
+	Kind        string `json:"kind"`
 	Count       uint64 `json:"count"`
 }
 

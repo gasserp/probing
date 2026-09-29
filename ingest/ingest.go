@@ -49,6 +49,7 @@ type candidate struct {
 	data     []byte
 	envelope publication.Envelope
 	key      ed25519.PublicKey
+	kind     string
 	valid    bool
 	reason   string
 }
@@ -83,6 +84,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	refreshSourceKinds(&ledger, registered)
 	candidates, quarantine, err := loadCandidates(runContext, options.InputPath, registered, options.Now)
 	if err != nil {
 		return Result{}, err
@@ -140,6 +142,13 @@ func loadRegistry(path, expectedRepository string) (Registry, map[string]registe
 		if err := protocol.ValidateKeyID(source.KeyID); err != nil {
 			return Registry{}, nil, fmt.Errorf("registry source %d: %w", i, err)
 		}
+		switch source.Kind {
+		case "":
+			source.Kind = SourceKindHost
+		case SourceKindDecoy, SourceKindHost:
+		default:
+			return Registry{}, nil, fmt.Errorf("registry source %d has an unknown kind", i)
+		}
 		expectedPrefix := source.SourceID + "/" + source.SourceEpoch + "/"
 		if source.BlobPrefix != expectedPrefix {
 			return Registry{}, nil, fmt.Errorf("registry source %d has a non-deterministic blob_prefix", i)
@@ -158,6 +167,18 @@ func loadRegistry(path, expectedRepository string) (Registry, map[string]registe
 		}
 	}
 	return registry, registered, nil
+}
+
+// refreshSourceKinds copies each registered source's kind into the ledger so
+// rollups label provenance with the registry's current classification, even
+// for sources that submit no new batches in this run.
+func refreshSourceKinds(ledger *Ledger, registered map[string]registeredSource) {
+	for i := range ledger.Sources {
+		source := &ledger.Sources[i]
+		if registration, ok := registered[source.SourceID+"\x00"+source.SourceEpoch]; ok {
+			source.Kind = registration.registration.Kind
+		}
+	}
 }
 
 func loadLedger(path, repository string) (Ledger, error) {
@@ -269,6 +290,7 @@ func loadCandidates(
 			data:     data,
 			envelope: envelope,
 			key:      source.publicKey,
+			kind:     source.registration.Kind,
 			valid:    true,
 		})
 		return nil
@@ -375,10 +397,11 @@ func acceptNewCandidate(ledger Ledger, item candidate, maxLedgerBytes int) (Ledg
 		})
 		index = len(trial.Sources) - 1
 	}
-	if err := applyPayload(&trial, payload); err != nil {
+	if err := applyPayload(&trial, payload, item.kind == SourceKindDecoy); err != nil {
 		return Ledger{}, "", err
 	}
 	source := &trial.Sources[index]
+	source.Kind = item.kind
 	source.Batches = append(source.Batches, LedgerBatch{
 		Sequence:    payload.Sequence,
 		PayloadHash: item.envelope.PayloadHash,

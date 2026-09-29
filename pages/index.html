@@ -42,6 +42,7 @@
           <p class="card-kicker">Collector coverage</p>
           <h2>Registered source epochs reporting</h2>
           <p id="source-count" class="metric">-</p>
+          <p id="source-kinds" class="subtle"></p>
         </article>
       </section>
       <section class="analysis-grid" aria-label="Observation analysis">
@@ -76,7 +77,7 @@
         </article>
         <article class="panel list-panel">
           <p class="card-kicker">Credential surface</p>
-          <h2>Top attempted passwords</h2>
+          <h2>Top attempted passwords (decoys only)</h2>
           <ol id="passwords"></ol>
         </article>
         <article class="panel list-panel">
@@ -92,7 +93,7 @@
       </section>
     </main>
     <footer>
-      <p>Exact public source IPs, attempted usernames, attempted passwords, and eligible paths are intentionally published for accepted promoted observations.</p>
+      <p>Exact public source IPs, attempted usernames, and eligible paths are intentionally published for accepted promoted observations. Attempted passwords are published only from decoy sources.</p>
       <p>
         Request revocation or correction of a published record via a
         <a href="https://github.com/gasserp/probing-data/issues/new?template=revocation-request.md">GitHub issue</a>.

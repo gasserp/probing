@@ -346,7 +346,16 @@ func TestApplyPayloadAccumulatesPasswords(t *testing.T) {
 			},
 		},
 	}
-	if err := applyPayload(&ledger, payload); err != nil {
+	hostLedger := cloneLedger(ledger)
+	if err := applyPayload(&hostLedger, payload, false); err != nil {
+		t.Fatal(err)
+	}
+	hostPeriod := hostLedger.Periods["hourly\x002026-09-10T19:00:00Z"]
+	if hostPeriod.Usernames["root"] != 4 || len(hostPeriod.Passwords) != 0 {
+		t.Fatalf("non-decoy source must keep usernames but publish no passwords: %#v", hostPeriod)
+	}
+
+	if err := applyPayload(&ledger, payload, true); err != nil {
 		t.Fatal(err)
 	}
 	period := ledger.Periods["hourly\x002026-09-10T19:00:00Z"]
@@ -373,7 +382,74 @@ func TestApplyPayloadAccumulatesPasswords(t *testing.T) {
 	}
 }
 
+func TestRunLabelsSourceKindFromRegistry(t *testing.T) {
+	repository := t.TempDir()
+	input := t.TempDir()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRegistry(t, repository, publicKey)
+	data := signedBatch(t, privateKey)
+	envelope, err := publication.ValidateEnvelope(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(input, filepath.FromSlash(envelope.BlobName))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func() {
+		t.Helper()
+		if _, err := Run(context.Background(), Options{
+			RepositoryPath:     repository,
+			InputPath:          input,
+			RepositoryIdentity: "gasserp/probing-data",
+			Now:                time.Date(2026, 9, 10, 21, 0, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourceKind := func() string {
+		t.Helper()
+		var rollup RollupFile
+		readJSON(t, filepath.Join(repository, "data", "rollups", "daily.json"), &rollup)
+		if len(rollup.Periods) != 1 || len(rollup.Periods[0].Sources) != 1 {
+			t.Fatalf("unexpected rollup: %#v", rollup)
+		}
+		return rollup.Periods[0].Sources[0].Kind
+	}
+
+	run()
+	if kind := sourceKind(); kind != SourceKindHost {
+		t.Fatalf("registration without kind labelled %q, want host", kind)
+	}
+	writeRegistryKind(t, repository, publicKey, SourceKindDecoy)
+	run()
+	if kind := sourceKind(); kind != SourceKindDecoy {
+		t.Fatalf("reclassified source labelled %q, want decoy", kind)
+	}
+
+	writeRegistryKind(t, repository, publicKey, "honeypot")
+	if _, err := Run(context.Background(), Options{
+		RepositoryPath:     repository,
+		InputPath:          input,
+		RepositoryIdentity: "gasserp/probing-data",
+		Now:                time.Date(2026, 9, 10, 21, 0, 0, 0, time.UTC),
+	}); err == nil {
+		t.Fatal("unknown source kind was accepted")
+	}
+}
+
 func writeRegistry(t *testing.T, repository string, publicKey ed25519.PublicKey) {
+	t.Helper()
+	writeRegistryKind(t, repository, publicKey, "")
+}
+
+func writeRegistryKind(t *testing.T, repository string, publicKey ed25519.PublicKey, kind string) {
 	t.Helper()
 	path := filepath.Join(repository, "registry", "sources.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -388,6 +464,7 @@ func writeRegistry(t *testing.T, repository string, publicKey ed25519.PublicKey)
 			KeyID:       "key-1",
 			PublicKey:   base64.RawURLEncoding.EncodeToString(publicKey),
 			BlobPrefix:  "sensor-one/5d6079de-20e0-4d4b-b955-40eac8f14df8/",
+			Kind:        kind,
 			Enabled:     true,
 		}},
 	}

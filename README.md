@@ -7,8 +7,11 @@ Collect on dev, test, and decoy systems. Block in production.
 
 ## How it works
 
-1. You run the `probing` agent on a host that no real user should touch:
-   a dev box, a test environment, a staging VM, or a dedicated decoy.
+1. You run the `probing` agent on a host that no real user should touch.
+   Each sensor is registered as one of two kinds:
+   - `decoy`: a dedicated host with no legitimate users, such as a Cowrie
+     honeypot;
+   - `host`: a dev, test, or staging machine running real services.
 2. Adapters read local Nginx and Cowrie logs (OpenSSH journal support is
    in progress). The agent flags repeated failed SSH logins and HTTP
    path-traversal or sensitive-file requests.
@@ -24,9 +27,9 @@ Collect on dev, test, and decoy systems. Block in production.
 
 A production host sees legitimate users. Mistyped passwords, stale
 credentials, and broken clients would put real customers on a public list,
-together with the usernames and sometimes the passwords they tried. Exact
-source IPs, usernames, attempted passwords, and request paths are
-published.
+together with the usernames they tried. Exact source IPs, usernames, and
+request paths are published. Attempted passwords are published only from
+`decoy` sensors, where no real user should ever type one.
 
 A dev, test, or decoy host has little or no legitimate traffic, so almost
 everything that fails there is a scanner. That keeps false positives low.

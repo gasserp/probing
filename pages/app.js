@@ -202,11 +202,14 @@ window.addEventListener("resize", scheduleChartResize);
 window.addEventListener("orientationchange", scheduleChartResize);
 
 function renderSources(periods) {
-  const sources = aggregate(
-    periods.flatMap((period) => period.sources || []),
-    (item) => `${item.source_id}\u0000${item.source_epoch}`,
-  );
-  document.getElementById("source-count").textContent = number.format(sources.length);
+  const kinds = new Map();
+  for (const item of periods.flatMap((period) => period.sources || [])) {
+    kinds.set(`${item.source_id}\u0000${item.source_epoch}`, item.kind === "decoy" ? "decoy" : "host");
+  }
+  const decoys = [...kinds.values()].filter((kind) => kind === "decoy").length;
+  document.getElementById("source-count").textContent = number.format(kinds.size);
+  document.getElementById("source-kinds").textContent =
+    `${number.format(decoys)} decoy · ${number.format(kinds.size - decoys)} host`;
 }
 
 function classifyIPVersion(ip) {
