@@ -30,7 +30,12 @@ type SourceRegistration struct {
 	PublicKey   string `json:"public_key"`
 	BlobPrefix  string `json:"blob_prefix"`
 	Kind        string `json:"kind,omitempty"`
-	Enabled     bool   `json:"enabled"`
+	// GitHubRepository, when set, names the public owner/name repository
+	// where the source publishes its own batches under their blob names.
+	// probing-fetch pulls them from there; without it the source uploads to
+	// the maintainer's Blob container.
+	GitHubRepository string `json:"github_repository,omitempty"`
+	Enabled          bool   `json:"enabled"`
 }
 
 type Ledger struct {

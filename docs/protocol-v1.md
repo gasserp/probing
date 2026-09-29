@@ -79,8 +79,9 @@ hashes the discarded query or fragment.
 A batch identity is `(source_id, source_epoch, sequence)`. Sequence is a
 canonical unsigned decimal string scoped to the epoch. Sequence zero has no
 predecessor; every later batch names the previous accepted payload hash.
-Retries must publish byte-identical content. The deterministic Azure blob name
-is
+Retries must publish byte-identical content. The deterministic blob name,
+used both as the Azure blob name and as the file path in a source's GitHub
+batch repository, is
 `source_id/source_epoch/<sequence-digit-count>-<sequence>/<payload-hash>.json`.
 The length prefix preserves lexical sequence order without weakening canonical
 decimal validation. Conflicting content at an accepted identity is rejected.
@@ -107,10 +108,19 @@ authoritative for accepted identity/hash pairs.
 ## Git volume policy
 
 The central repository stores only the compact acceptance ledger and derived
-rollups. Exact immutable envelopes remain in Azure Blob for 30 days, then the
-lifecycle policy deletes them. GitHub ingestion deletes accepted or
-byte-identical replay blobs only after the resulting data-repository commit.
-Invalid blobs remain for investigation until retention applies. Acceptance is
+rollups. A source publishes its exact immutable envelopes in one of two places:
+
+- **Its own public GitHub repository**, the contributor path. The source
+  commits each envelope under its blob name and never deletes it; the history
+  stays public. Ingestion pulls only sequences at or after the ledger's next
+  expected sequence, lowest first, at most 48 per source per run.
+- **The reference deployment's Azure Blob container**, for the maintainer's
+  own sensors. Envelopes remain there for 30 days, then the lifecycle policy
+  deletes them. GitHub ingestion deletes accepted or byte-identical replay
+  blobs only after the resulting data-repository commit. Invalid blobs remain
+  for investigation until retention applies.
+
+Acceptance is
 bounded to 256 files, 64 MiB, 64 registered sources, 100,000 accepted batches,
 and two minutes per invocation. Pending-batch retrieval is one batch at a time,
 and the local store refuses to create more than 128 unpublished batches.
@@ -118,7 +128,8 @@ and the local store refuses to create more than 128 unpublished batches.
 ## Registration and recovery
 
 A registry entry in `probing-data` reserves a unique source ID and records its
-epoch, key ID, public signing key, blob prefix, kind (`decoy` or `host`), and
+epoch, key ID, public signing key, blob prefix, kind (`decoy` or `host`), the
+GitHub repository it publishes to (omitted for the Azure container), and
 whether it is `enabled`. Registration is a reviewed pull request to that
 registry. Setting `enabled` to false revokes the entry: later batches for it
 are quarantined, but historical observations are not removed.

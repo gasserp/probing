@@ -14,27 +14,30 @@ import (
 )
 
 func main() {
+	githubRepository := flag.String("github-repository", "", "public owner/name GitHub repository to commit batches to, instead of Azure")
 	account := flag.String("account", "", "Azure Storage account name")
 	container := flag.String("container", "", "Azure Blob container name")
 	outbox := flag.String("outbox", "/outbox", "shared outbox directory")
 	poll := flag.Duration("poll", 15*time.Second, "outbox polling interval")
 	tenantID := flag.String("tenant-id", "", "Entra tenant ID; omit to use the Azure VM managed identity")
 	clientID := flag.String("client-id", "", "Entra service principal client ID")
-	clientSecretFile := flag.String("client-secret-file", "", "file holding the service principal client secret")
+	credentialFile := flag.String("credential-file", "", "file holding the GitHub token or the service principal client secret")
 	flag.Parse()
-	if *account == "" || *container == "" {
-		fmt.Fprintln(os.Stderr, "usage: probing-uploader -account <name> -container <name> [-outbox <path>]"+
-			" [-tenant-id <id> -client-id <id> -client-secret-file <path>]")
+	if *githubRepository == "" && (*account == "" || *container == "") {
+		fmt.Fprintln(os.Stderr, "usage: probing-uploader -github-repository <owner/name> -credential-file <path> [-outbox <path>]\n"+
+			"   or: probing-uploader -account <name> -container <name> [-outbox <path>]"+
+			" [-tenant-id <id> -client-id <id> -credential-file <path>]")
 		os.Exit(2)
 	}
 	process, err := uploader.New(uploader.Config{
+		GitHubRepository: *githubRepository,
 		Account:          *account,
 		Container:        *container,
 		OutboxDir:        *outbox,
 		PollInterval:     *poll,
 		TenantID:         *tenantID,
 		ClientID:         *clientID,
-		ClientSecretFile: *clientSecretFile,
+		CredentialFile:   *credentialFile,
 	})
 	if err != nil {
 		log.Printf("probing-uploader configuration failed: %v", err)

@@ -30,10 +30,33 @@ data/rollups/yearly.json          # generated
       "blob_prefix": "gasserp-azure-weu-01/replace-with-persistent-lowercase-uuid/",
       "kind": "decoy",
       "enabled": true
+    },
+    {
+      "source_id": "alice-home-pi-01",
+      "source_epoch": "replace-with-persistent-lowercase-uuid",
+      "key_id": "alice-home-pi-01-ed25519-1",
+      "public_key": "base64url-without-padding-of-the-raw-32-byte-ed25519-key",
+      "blob_prefix": "alice-home-pi-01/replace-with-persistent-lowercase-uuid/",
+      "kind": "host",
+      "github_repository": "alice/probing-batches",
+      "enabled": true
     }
   ]
 }
 ```
+
+### Where batches come from
+
+`github_repository` names the public `owner/name` repository where a
+contributor's sensor commits its signed batches, under their blob names. The
+ingest workflow pulls from it. Without the field, the source uploads to the
+reference deployment's Azure Blob container, which is only for the
+maintainer's own sensors.
+
+When reviewing a registration, check that the pull request author controls
+the named repository. A wrong repository cannot inject data, because every
+batch must verify against the registered key, but it would leave the source
+with no data.
 
 ### Source kinds
 
@@ -82,10 +105,31 @@ reason code. Quarantine never copies hostile batch content.
 ## Ingestion workflow
 
 The `ingest` workflow (`.github/workflows/ingest.yml`) in `probing-data` runs
-hourly and must have `id-token: write` and `contents: write`. It logs in with `azure/login`, downloads the configured Blob
-container using `--auth-mode login`, checks out `gasserp/probing` at the ref
-named in `deploy/VERSION` on its `main` branch (a `probing_ref` dispatch input
-overrides it for one run), builds `./cmd/probing-ingest`, then runs:
+hourly and must have `id-token: write` and `contents: write`. It checks out
+`gasserp/probing` at the ref named in `deploy/VERSION` on its `main` branch (a
+`probing_ref` dispatch input overrides it for one run) and builds
+`./cmd/probing-fetch` and `./cmd/probing-ingest`. It logs in with
+`azure/login`, downloads the configured Blob container using
+`--auth-mode login`, and records which files came from there. Then it pulls
+contributor batches:
+
+```sh
+GITHUB_TOKEN=… probing-fetch \
+  -repo "$GITHUB_WORKSPACE" \
+  -output "$RUNNER_TEMP/probing-blobs" \
+  -repository "$GITHUB_REPOSITORY"
+```
+
+For every enabled source with a `github_repository`, `probing-fetch` lists the
+repository's default branch and downloads batch files under the source's
+prefix whose sequence the ledger has not accepted yet, lowest first. It
+fetches at most 48 files per source and stays within ingest's 256-file input
+limit. A repository that is missing, private, too large to list, or serves
+content that does not match its tree is skipped with a workflow warning. It
+does not fail the run. The workflow's `GITHUB_TOKEN` is used only for GitHub
+API rate limits and is never sent to the raw-content host.
+
+Then it runs:
 
 ```sh
 probing-ingest \
@@ -105,16 +149,20 @@ committed.
 A quarantine is therefore not visible in the Actions UI; watch
 `data/quarantine.json` instead. It is rebuilt on every run and lists only the
 blobs that run rejected, each with a reason code. Quarantined blobs stay in the
-container, so every hourly run downloads and re-evaluates them until they are
-accepted or the 30-day lifecycle rule removes them. Once the cause is fixed,
+container, and quarantined contributor batches stay at or after the ledger's
+next sequence, so every hourly run downloads and re-evaluates them until they
+are accepted, or until the 30-day lifecycle rule removes the Azure ones. Once the cause is fixed,
 for example by bringing acceptance onto the collector's wire format, the next
 run accepts them without a manual replay. An ingest commit that changes only
 `quarantine.json` while the rollups stop advancing means new batches are being
 rejected.
 
 Commit and push generated changes before deleting blobs. After the push
-succeeds, iterate only `.blobs[]` from `accepted.json` and delete those exact
-names with `az storage blob delete --auth-mode login`. Never use
+succeeds, iterate only those `.blobs[]` from `accepted.json` that were
+downloaded from Azure, and delete those exact names with
+`az storage blob delete --auth-mode login`. Batches in contributor
+repositories are never deleted; the ledger's next sequence keeps them from
+being fetched again. Never use
 `delete-batch`: quarantined blobs must remain available until the 30-day
 lifecycle rule removes them. A crash before deletion produces a harmless
 byte-identical replay on the next run.

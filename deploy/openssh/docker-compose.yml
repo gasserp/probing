@@ -2,8 +2,8 @@
 # server, read from the systemd journal. Unlike ../docker-compose.yml there
 # is no decoy and no published port; sshd runs on the host, not in Docker.
 #
-# install.sh writes /etc/probing/config.json, the uploader client secret, and
-# .env next to this file, then builds and starts the stack.
+# install.sh writes /etc/probing/config.json, the uploader credential, and .env
+# next to this file, then builds and starts the stack.
 name: probing-openssh
 
 services:
@@ -67,17 +67,22 @@ services:
       dockerfile: Dockerfile
       target: probing-uploader
     restart: unless-stopped
+    # Exactly one target: the contributor's own public GitHub repository
+    # (PROBING_GITHUB_REPOSITORY), or the maintainer's Azure Blob container
+    # with an Entra service principal. install.sh leaves the other empty.
     command:
+      - "-github-repository"
+      - "${PROBING_GITHUB_REPOSITORY:-}"
       - "-account"
-      - "${PROBING_STORAGE_ACCOUNT:?set PROBING_STORAGE_ACCOUNT}"
+      - "${PROBING_STORAGE_ACCOUNT:-}"
       - "-container"
-      - "${PROBING_STORAGE_CONTAINER:?set PROBING_STORAGE_CONTAINER}"
+      - "${PROBING_STORAGE_CONTAINER:-}"
       - "-tenant-id"
-      - "${PROBING_AZURE_TENANT_ID:?set PROBING_AZURE_TENANT_ID}"
+      - "${PROBING_AZURE_TENANT_ID:-}"
       - "-client-id"
-      - "${PROBING_AZURE_CLIENT_ID:?set PROBING_AZURE_CLIENT_ID}"
-      - "-client-secret-file"
-      - "/secrets/azure-client-secret"
+      - "${PROBING_AZURE_CLIENT_ID:-}"
+      - "-credential-file"
+      - "/secrets/upload-credential"
       - "-outbox"
       - "/outbox"
     user: "65532:65532"
@@ -88,7 +93,7 @@ services:
       - ALL
     volumes:
       - /var/lib/probing/outbox:/outbox
-      - /etc/probing/azure-client-secret:/secrets/azure-client-secret:ro
+      - /etc/probing/upload-credential:/secrets/upload-credential:ro
     networks:
       - upload
 

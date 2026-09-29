@@ -519,3 +519,112 @@ func readJSON(t *testing.T, path string, output any) {
 		t.Fatal(err)
 	}
 }
+
+func TestFetchTargetsListsEnabledGitHubSourcesFromLedgerHead(t *testing.T) {
+	repository := t.TempDir()
+	input := t.TempDir()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRegistrySource(t, repository, publicKey, func(source *SourceRegistration) {
+		source.GitHubRepository = "alice/probing-batches"
+	})
+	targets, err := FetchTargets(repository, "gasserp/probing-data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].Repository != "alice/probing-batches" ||
+		targets[0].SourceID != "sensor-one" || targets[0].NextSequence != "0" {
+		t.Fatalf("unexpected targets before acceptance: %#v", targets)
+	}
+
+	data := signedBatch(t, privateKey)
+	envelope, err := publication.ValidateEnvelope(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(input, filepath.FromSlash(envelope.BlobName))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), Options{
+		RepositoryPath:     repository,
+		InputPath:          input,
+		RepositoryIdentity: "gasserp/probing-data",
+		Now:                time.Date(2026, 9, 10, 21, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	targets, err = FetchTargets(repository, "gasserp/probing-data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].NextSequence != "1" {
+		t.Fatalf("fetch target does not resume after the accepted batch: %#v", targets)
+	}
+
+	writeRegistrySource(t, repository, publicKey, func(source *SourceRegistration) {
+		source.GitHubRepository = "alice/probing-batches"
+		source.Enabled = false
+	})
+	if targets, err := FetchTargets(repository, "gasserp/probing-data"); err != nil || len(targets) != 0 {
+		t.Fatalf("disabled source is still fetched: %#v, %v", targets, err)
+	}
+	writeRegistry(t, repository, publicKey)
+	if targets, err := FetchTargets(repository, "gasserp/probing-data"); err != nil || len(targets) != 0 {
+		t.Fatalf("Blob-container source is fetched from GitHub: %#v, %v", targets, err)
+	}
+}
+
+func TestRegistryRejectsInvalidGitHubRepository(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{
+		"alice",
+		"alice/",
+		"/repo",
+		"alice/repo/extra",
+		"-alice/repo",
+		"alice--x/repo",
+		"alice/..",
+		"alice/repo.git",
+		"alice/re po",
+		"alice/repo?x=1",
+		"https://github.com/alice/repo",
+	} {
+		repository := t.TempDir()
+		writeRegistrySource(t, repository, publicKey, func(source *SourceRegistration) {
+			source.GitHubRepository = value
+		})
+		if _, err := FetchTargets(repository, "gasserp/probing-data"); err == nil {
+			t.Errorf("github_repository %q was accepted", value)
+		}
+	}
+}
+
+func writeRegistrySource(
+	t *testing.T,
+	repository string,
+	publicKey ed25519.PublicKey,
+	edit func(*SourceRegistration),
+) {
+	t.Helper()
+	writeRegistry(t, repository, publicKey)
+	path := filepath.Join(repository, "registry", "sources.json")
+	var registry Registry
+	readJSON(t, path, &registry)
+	edit(&registry.Sources[0])
+	data, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

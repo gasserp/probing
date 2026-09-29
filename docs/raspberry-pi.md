@@ -10,6 +10,11 @@ What gets published: source IP, attempted username, and time for each failed
 login. Passwords are never published from a `host` source, and your own
 username and local networks are excluded before anything is signed.
 
+You need no account or access anywhere in the maintainer's infrastructure. The
+Pi commits its signed batches to a public GitHub repository that you own, and
+the central ingest workflow pulls them from there once your sensor is in the
+registry.
+
 The stack in [`deploy/openssh/`](../deploy/openssh/) runs three networkless or
 network-restricted containers:
 
@@ -17,7 +22,7 @@ network-restricted containers:
 |---|---|---|
 | `openssh-adapter` | `/var/log/journal`, only the `ssh.service` records | none |
 | `collector` | adapter socket; holds the signing key and SQLite state | none |
-| `uploader` | signed batches in the outbox; holds the Azure client secret | outbound HTTPS |
+| `uploader` | signed batches in the outbox; holds the GitHub token | outbound HTTPS |
 
 ## 1. What you need
 
@@ -32,11 +37,8 @@ network-restricted containers:
   address (dynamic is fine), or IPv6. If your router's WAN address is in
   `100.64.0.0/10`, or differs from what <https://ifconfig.co> shows, you are
   behind carrier-grade NAT and only IPv6 can reach the Pi.
-- On your workstation: `az` logged in to the subscription that holds the
-  reference deployment (see [`infra/README.md`](../infra/README.md)), with
-  rights to create an app registration and a role assignment on the
-  `probing-collector` resource group.
-- Write access to the `gasserp/probing-data` registry, or someone who has it.
+- A GitHub account. It holds the public repository your batches go to, and
+  you use it to open the registration pull request.
 
 ## 2. Put the Pi on its own network
 
@@ -71,51 +73,28 @@ Do not open the router port yet; that is the last step.
    sudo reboot
    ```
 
-## 4. Create the upload credential (workstation)
+## 4. Create the batch repository and token (browser)
 
-The reference VM uploads with its Azure managed identity. A Pi has none, so it
-gets its own Entra service principal. The principal holds the same
-`probing-collector-blob-uploader` role as the VM: it can create and read back
-blobs in the batch container, but cannot list, overwrite, or delete them.
+1. Create a **public** repository for the batches, for example
+   `alice/probing-batches`, and tick **Add a README file** so it has a default
+   branch. Keep nothing else in it. Everything in it is public: signed batches
+   of failed-login source IPs and usernames, the same data the dashboard
+   shows.
+2. Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new):
+   - **Repository access**: *Only select repositories*, and pick the batch
+     repository;
+   - **Permissions → Repository permissions → Contents**: *Read and write*.
+     Nothing else;
+   - **Expiration**: up to a year. Put a reminder in your calendar; section 9
+     shows how to replace it.
+3. Copy the token. The installer asks for it in the next step and stores it in
+   `/etc/probing/upload-credential`, readable only by the uploader. It is never
+   printed.
 
-```sh
-subscription=<subscription-id>
-resourceGroup=probing-collector
-sourceId=gasserp-home-pi-01          # lowercase; unique per sensor
-pi=alice@probe-01.local
-
-storageAccount=$(az deployment sub show --subscription "$subscription" \
-  --name probing-first-collector --query properties.outputs.storageAccountName.value -o tsv)
-storageContainer=$(az deployment sub show --subscription "$subscription" \
-  --name probing-first-collector --query properties.outputs.storageContainerName.value -o tsv)
-containerScope="$(az storage account show --subscription "$subscription" \
-  --resource-group "$resourceGroup" --name "$storageAccount" --query id -o tsv)/blobServices/default/containers/$storageContainer"
-tenantId=$(az account show --subscription "$subscription" --query tenantId -o tsv)
-
-clientId=$(az ad app create --display-name "probing-$sourceId" --query appId -o tsv)
-az ad sp create --id "$clientId"
-az role assignment create \
-  --assignee "$clientId" \
-  --role probing-collector-blob-uploader \
-  --scope "$containerScope"
-
-# The secret goes straight from Entra to a root-only file on the Pi; it is
-# never printed or written to your workstation's disk.
-az ad app credential reset --id "$clientId" --display-name "$sourceId" --years 1 \
-  --query password -o tsv |
-  ssh "$pi" 'sudo install -d -m 0755 /etc/probing &&
-             sudo sh -c "umask 077; cat > /etc/probing/azure-client-secret"'
-
-printf 'tenant %s\nclient %s\naccount %s\ncontainer %s\n' \
-  "$tenantId" "$clientId" "$storageAccount" "$storageContainer"
-```
-
-The `ssh` step needs passwordless `sudo`, which Raspberry Pi OS grants the
-user created in Imager. The last command prints only non-secret values; you
-need them in the next step. A new role assignment can take a few minutes to apply.
-
-The secret expires after one year. Put a reminder in your calendar; section 9
-shows how to rotate it.
+The token can do nothing except add files to that one repository. If it
+leaks, the worst case is junk in your batch repository: every batch is
+checked against the Ed25519 key in the registry, and the private key never
+leaves the Pi.
 
 ## 5. Install the sensor (Pi)
 
@@ -131,14 +110,14 @@ curl -fsSLO "https://raw.githubusercontent.com/gasserp/probing/$ref/deploy/opens
 less install.sh      # read it before running it as root
 
 sudo bash install.sh \
-  --source-id gasserp-home-pi-01 \
+  --source-id alice-home-pi-01 \
   --admin-user alice \
-  --storage-account <account> \
-  --storage-container <container> \
-  --tenant-id <tenant> \
-  --client-id <client> \
+  --github-repository alice/probing-batches \
   --repository-ref "$ref"
 ```
+
+Pick a lowercase `--source-id` that starts with your GitHub name, so it is
+unique in the registry. When prompted, paste the token from step 4.
 
 The installer is idempotent. It:
 
@@ -166,20 +145,22 @@ The installer is idempotent. It:
 6. writes `/etc/probing/config.json`, excluding your admin username and
    private, CGNAT, loopback, and link-local ranges (`--trusted-cidr`
    replaces that list; repeat it for each range);
-7. checks out the ref in `/opt/probing`, builds the images, starts the stack,
-   and verifies container isolation.
+7. stores the token, checks that the batch repository is public, checks out
+   the ref in `/opt/probing`, builds the images, starts the stack, and
+   verifies container isolation.
 
 The first run takes 10–30 minutes on a Pi 4 while the images build. It ends by
 printing the registry entry for this sensor:
 
 ```json
 {
-  "source_id": "gasserp-home-pi-01",
+  "source_id": "alice-home-pi-01",
   "source_epoch": "…",
-  "key_id": "gasserp-home-pi-01-ed25519-1",
+  "key_id": "alice-home-pi-01-ed25519-1",
   "public_key": "…",
-  "blob_prefix": "gasserp-home-pi-01/…/",
+  "blob_prefix": "alice-home-pi-01/…/",
   "kind": "host",
+  "github_repository": "alice/probing-batches",
   "enabled": true
 }
 ```
@@ -190,13 +171,14 @@ still works.
 ## 6. Register the source
 
 Open a pull request against `gasserp/probing-data` that adds the printed
-entry to `registry/sources.json`. Keep `"kind": "host"`: this sensor runs a
-real sshd, so passwords must never be published from it (see
+entry to `registry/sources.json`, from the GitHub account that owns the batch
+repository. Keep `"kind": "host"`: this sensor runs a real sshd, so passwords
+must never be published from it (see
 [`data-repository.md`](data-repository.md#source-kinds)).
 
-Until the entry is merged, ingest quarantines the Pi's batches as
-unregistered. They stay in Blob storage for 30 days and are accepted on the
-first ingest run after registration.
+Nothing is lost while the pull request waits. Batches accumulate in your
+repository, and the first ingest run after the merge picks them up, oldest
+first.
 
 ## 7. Open the port
 
@@ -233,12 +215,14 @@ sudo ls -l /var/lib/probing/outbox
 
 The collector closes a batch shortly after each full UTC hour. A
 `batch-….json` file followed by a matching `.receipt.json` means the batch was
-signed and uploaded. After the next hourly ingest run, the source appears on
-the dashboard: <https://gasserp.github.io/probing/>.
+signed and committed; it appears in your batch repository as
+`<source-id>/<epoch>/<n>-<sequence>/<hash>.json`. After the next hourly
+ingest run, the source appears on the dashboard:
+<https://gasserp.github.io/probing/>.
 
-If the uploader logs `Entra token endpoint returned HTTP 400` or `401`, the client
-secret is wrong or expired. `HTTP 403` from storage means the role assignment
-is missing or has not applied yet.
+If the uploader logs `create GitHub file returned HTTP 401`, the token is
+wrong or expired. `HTTP 403` or `404` means the token lacks *Contents: Read
+and write* on the batch repository, or names a different repository.
 
 ## 9. Operate
 
@@ -246,19 +230,16 @@ is missing or has not applied yet.
 same arguments and the new `--repository-ref`. The key, epoch, state, and
 outbox are preserved.
 
-**Rotate the client secret** before it expires. On the workstation:
+**Replace the token** before it expires: create a new one as in step 4, then
+on the Pi:
 
 ```sh
-az ad app credential reset --id "$clientId" --display-name "$sourceId" --years 1 \
-  --query password -o tsv |
-  ssh "$pi" 'sudo sh -c "umask 077; cat > /etc/probing/azure-client-secret" &&
-             sudo chown 65532:65532 /etc/probing/azure-client-secret &&
-             cd /opt/probing &&
-             sudo docker compose -f deploy/openssh/docker-compose.yml restart uploader'
+sudo rm /etc/probing/upload-credential
+sudo bash install.sh …same arguments as before…   # prompts for the new token
 ```
 
-Batches keep accumulating in the outbox while the secret is invalid. Nothing
-is lost; they upload once the secret works again.
+Batches keep accumulating in the outbox while the token is invalid. Nothing
+is lost; they upload once the token works again.
 
 **Back up** `/var/lib/probing` (state database, key, epoch, outbox) with the
 stack stopped, as described in [`publication.md`](publication.md#key-lifecycle).
@@ -277,8 +258,8 @@ cd /opt/probing && sudo docker compose -f deploy/openssh/docker-compose.yml down
 sudo rm /etc/ssh/sshd_config.d/00-probing.conf && sudo systemctl reload ssh
 ```
 
-Close the router port, and delete the app registration with
-`az ad app delete --id "$clientId"`.
+Close the router port and revoke the token. Keep the batch repository: it is
+the public record behind the published data.
 
 ## Caveats
 
@@ -293,3 +274,13 @@ Close the router port, and delete the app registration with
   pass `--ssh-unit`.
 - If the clock never synchronises (no network at boot), the containers stay
   stopped until it does.
+
+## Uploading to the maintainer's storage instead
+
+The reference deployment's own sensors upload to its Azure Blob container, see
+[`infra/README.md`](../infra/README.md). The maintainer can put a Pi on the
+same path. Instead of `--github-repository`, pass `--storage-account`,
+`--storage-container`, `--tenant-id`, and `--client-id` for a service
+principal that holds the container-scoped `probing-collector-blob-uploader`
+role, and paste its client secret at the prompt. Its registry entry has no
+`github_repository`. Contributors never need this.

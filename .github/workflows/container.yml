@@ -19,7 +19,12 @@ jobs:
           PROBING_STORAGE_ACCOUNT: probingvalidation
           PROBING_STORAGE_CONTAINER: pending-batches
         run: docker compose -f deploy/docker-compose.yml config --format json | python3 deploy/validate-compose.py
-      - name: Validate OpenSSH sensor isolation
+      - name: Validate OpenSSH sensor isolation (GitHub target)
+        env:
+          PROBING_JOURNAL_GID: "101"
+          PROBING_GITHUB_REPOSITORY: example/probing-batches
+        run: docker compose -f deploy/openssh/docker-compose.yml config --format json | python3 deploy/openssh/validate-compose.py
+      - name: Validate OpenSSH sensor isolation (Azure target)
         env:
           PROBING_STORAGE_ACCOUNT: probingvalidation
           PROBING_STORAGE_CONTAINER: pending-batches
