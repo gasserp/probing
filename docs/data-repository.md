@@ -59,6 +59,11 @@ the named repository. A wrong repository cannot inject data, because every
 batch must verify against the registered key, but it would leave the source
 with no data.
 
+Every registered sensor, `host` or `decoy`, must also have its public
+addresses in `registry/never-block.json` (IPv4 as `/32`, IPv6 as its `/64`),
+with a reason naming the `source_id`. Do not merge a registration without
+them.
+
 ### Source kinds
 
 `kind` classifies the sensor and is set by the registry maintainer, not by

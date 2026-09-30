@@ -72,7 +72,8 @@ on the next run without touching the stored state:
   ranges from the IANA IPv4 and IPv6 special-purpose registries;
 - the CIDRs in `registry/never-block.json` in `probing-data`, which the
   maintainer reviews like the source registry. It holds critical shared
-  infrastructure such as public DNS resolvers, and the sensors' own addresses.
+  infrastructure such as public DNS resolvers, and the public addresses of
+  every registered sensor, which each registration adds.
 
 `registry/never-block.json` is strict JSON:
 
