@@ -50,16 +50,17 @@ Early. Working today:
 - publication to your own public GitHub repository, pulled centrally, so
   contributing needs no access to anyone else's infrastructure;
 - central validation, replay protection, and hourly to yearly rollups;
-- a public dashboard: <https://gasserp.github.io/probing/>.
+- a public dashboard: <https://gasserp.github.io/probing/>;
+- hourly deny lists in plain text, nftables, and ipset format, with a
+  72-hour `recent` and a 30-day `persistent` list
+  ([`docs/deny-list.md`](docs/deny-list.md)).
 
 Not yet available:
 
-- a downloadable deny list (plain text, nftables, ipset);
 - a GitHub publishing option for the Cowrie decoy stack in
   [`deploy/`](deploy/). Today only the OpenSSH host sensor supports it.
 
-Until those land, the published data is useful for research, not for
-automated blocking.
+The deny lists start empty and fill as new batches are accepted.
 
 ## Caveats
 

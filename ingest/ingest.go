@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gasserp/probing/denylist"
 	"github.com/gasserp/probing/protocol"
 	"github.com/gasserp/probing/publication"
 )
@@ -103,6 +104,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err := prunePeriods(&ledger, options.Now); err != nil {
 		return Result{}, err
 	}
+	denylist.Prune(ledger.DenyList, options.Now)
 	if len(quarantine.Entries) > 0 {
 		quarantine.UpdatedAt = options.Now.Format(time.RFC3339Nano)
 	} else if ledger.UpdatedAt != "" {
@@ -471,6 +473,9 @@ func acceptNewCandidate(ledger Ledger, item candidate, maxLedgerBytes int) (Ledg
 	if err := applyPayload(&trial, payload, item.kind == SourceKindDecoy); err != nil {
 		return Ledger{}, "", err
 	}
+	if err := applyDenyList(&trial, payload, item.kind); err != nil {
+		return Ledger{}, "", err
+	}
 	source := &trial.Sources[index]
 	source.Kind = item.kind
 	source.Batches = append(source.Batches, LedgerBatch{
@@ -514,6 +519,7 @@ func cloneLedger(ledger Ledger) Ledger {
 		UpdatedAt:     ledger.UpdatedAt,
 		Sources:       make([]LedgerSource, len(ledger.Sources)),
 		Periods:       make(map[string]PeriodLedger, len(ledger.Periods)),
+		DenyList:      denylist.Clone(ledger.DenyList),
 	}
 	for i, source := range ledger.Sources {
 		clone.Sources[i] = source
