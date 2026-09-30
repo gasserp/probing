@@ -7,6 +7,7 @@ the validator and renderer; it does not create or deploy `probing-data`.
 
 ```text
 registry/sources.json
+registry/never-block.json         # optional, see docs/deny-list.md
 data/acceptance-ledger.json       # created by probing-ingest if absent
 data/quarantine.json              # generated
 data/rollups/hourly.json          # generated

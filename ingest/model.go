@@ -1,5 +1,7 @@
 package ingest
 
+import "github.com/gasserp/probing/denylist"
+
 const (
 	RegistrySchemaVersion   = "probing.registry/v1"
 	LedgerSchemaVersion     = "probing.acceptance-ledger/v1"
@@ -39,11 +41,12 @@ type SourceRegistration struct {
 }
 
 type Ledger struct {
-	SchemaVersion string                  `json:"schema_version"`
-	Repository    string                  `json:"repository"`
-	UpdatedAt     string                  `json:"updated_at,omitempty"`
-	Sources       []LedgerSource          `json:"sources"`
-	Periods       map[string]PeriodLedger `json:"periods"`
+	SchemaVersion string                     `json:"schema_version"`
+	Repository    string                     `json:"repository"`
+	UpdatedAt     string                     `json:"updated_at,omitempty"`
+	Sources       []LedgerSource             `json:"sources"`
+	Periods       map[string]PeriodLedger    `json:"periods"`
+	DenyList      map[string]denylist.Record `json:"deny_list,omitempty"`
 }
 
 type LedgerSource struct {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gasserp/probing/denylist"
 	"github.com/gasserp/probing/protocol"
 )
 
@@ -93,7 +94,7 @@ func validateLedger(ledger Ledger, repository string) error {
 			}
 		}
 	}
-	return nil
+	return denylist.Validate(ledger.DenyList)
 }
 
 func lowerHex(value string, length int) bool {
