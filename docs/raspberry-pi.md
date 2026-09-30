@@ -176,6 +176,19 @@ repository. Keep `"kind": "host"`: this sensor runs a real sshd, so passwords
 must never be published from it (see
 [`data-repository.md`](data-repository.md#source-kinds)).
 
+In the same pull request, add your connection's public IPv4 address and IPv6
+`/64` to `registry/never-block.json`, one entry each with a reason naming the
+source, so your own network never lands on the deny list (see
+[`deny-list.md`](deny-list.md#never-listed)). Check the addresses from the Pi:
+
+```sh
+curl -4 https://api.ipify.org; echo
+curl -6 https://api6.ipify.org; echo
+```
+
+If your provider later changes them, open a pull request that updates the
+entries.
+
 Nothing is lost while the pull request waits. Batches accumulate in your
 repository, and the first ingest run after the merge picks them up, oldest
 first.
@@ -250,7 +263,8 @@ any address in the trusted ranges. Keep other people from logging in to the
 Pi. A mistyped username from outside your network is published like any
 other failed login.
 
-**Decommission.** Set `"enabled": false` for the source in the registry, then
+**Decommission.** Set `"enabled": false` for the source in the registry and
+remove its entries from `registry/never-block.json`, then
 on the Pi:
 
 ```sh
