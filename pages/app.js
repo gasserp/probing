@@ -225,7 +225,13 @@ function renderRanked(id, rows, emptyText = "No accepted values") {
     const item = el("li");
     const label = el("div", "label");
     if (row.flag) label.appendChild(el("span", "flag", row.flag));
-    label.appendChild(document.createTextNode(row.label));
+    if (row.href) {
+      const link = el("a", "", row.label);
+      link.href = row.href;
+      label.appendChild(link);
+    } else {
+      label.appendChild(document.createTextNode(row.label));
+    }
     if (row.tag) label.appendChild(el("span", "tag", row.tag));
     if (row.meta) label.appendChild(el("span", "meta", row.meta));
     item.append(label, el("span", "value", number.format(row.count)));
@@ -273,6 +279,17 @@ function renderLists(view) {
   renderRanked("usernames", simple(view.usernames));
   renderRanked("passwords", simple(view.passwords));
   renderRanked("paths", simple(view.paths));
+
+  // A probe that matched several rules counts under each, so shares can add
+  // up to more than 100%. Rule IDs are validated on the wire, and the CVE
+  // link is built from the matched digits only.
+  renderRanked("rules", (view.rules || []).slice(0, 15).map((item) => {
+    const meta = `${percent.format(share(item.count, view.http))} of HTTP probes`;
+    const cve = /^http\/cve-(\d{4})-(\d{4,})-v\d+$/.exec(item.value);
+    if (!cve) return { label: item.value, count: item.count, meta };
+    const id = `CVE-${cve[1]}-${cve[2]}`;
+    return { label: id, href: `https://www.cve.org/CVERecord?id=${id}`, count: item.count, meta: `${item.value} · ${meta}` };
+  }));
 
   renderRanked("sensors", (view.sources || []).map((item) => ({
     label: item.source_id,
@@ -634,7 +651,7 @@ function setRange(range) {
 }
 
 function renderUnavailableDashboard(message) {
-  for (const id of ["countries", "networks", "source-ips", "usernames", "passwords", "paths", "sensors"]) {
+  for (const id of ["countries", "networks", "source-ips", "usernames", "passwords", "paths", "rules", "sensors"]) {
     if (document.getElementById(id)) renderRanked(id, [], message);
   }
   for (const id of ["map", "timeline", "ips-chart", "heatmap", "ip-versions"]) {
@@ -659,7 +676,7 @@ function showFailure(badge, detail) {
 // fetch the current page; if that does not help, say so instead of hanging.
 function layoutMatches() {
   const freshness = document.getElementById("freshness");
-  if (freshness && freshness.dataset.layout === "2") return true;
+  if (freshness && freshness.dataset.layout === "3") return true;
   let reloaded = false;
   try {
     reloaded = window.sessionStorage.getItem("probing-layout-reload") === "1";

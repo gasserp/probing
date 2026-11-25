@@ -49,6 +49,10 @@ func applyPayload(ledger *Ledger, payload protocol.BatchPayload, publishPassword
 				if accumulator.Passwords == nil {
 					accumulator.Passwords = make(map[string]uint64)
 				}
+				// Likewise for rules, which were tracked after passwords.
+				if accumulator.Rules == nil {
+					accumulator.Rules = make(map[string]uint64)
+				}
 				if err := addCount(&accumulator.Total, bucket.Count); err != nil {
 					return err
 				}
@@ -71,6 +75,11 @@ func applyPayload(ledger *Ledger, payload protocol.BatchPayload, publishPassword
 				} else {
 					if err := addMapCount(accumulator.Paths, &accumulator.PathsOverflow, record.Path, bucket.Count); err != nil {
 						return err
+					}
+					for _, rule := range record.RuleIDs {
+						if err := addMapCount(accumulator.Rules, &accumulator.RulesOverflow, rule, bucket.Count); err != nil {
+							return err
+						}
 					}
 				}
 				ledger.Periods[key] = accumulator
@@ -112,6 +121,7 @@ func prunePeriods(ledger *Ledger, now time.Time) error {
 			{accumulator.Usernames, &accumulator.UsernamesOverflow},
 			{accumulator.Passwords, &accumulator.PasswordsOverflow},
 			{accumulator.Paths, &accumulator.PathsOverflow},
+			{accumulator.Rules, &accumulator.RulesOverflow},
 		} {
 			if err := trimToTop(dimension.values, dimension.overflow, MaxPublicDimensionValues); err != nil {
 				return err

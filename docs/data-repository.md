@@ -194,8 +194,10 @@ stable-ID subject format (`owner@owner_id/repo@repo_id`), not the plain
 The acceptance identity is `(source_id, source_epoch, sequence)`. The ledger
 stores one payload hash and deterministic blob name per accepted sequence plus
 compact dimension accumulators. It is the replay authority; Git history is
-not. Each batch record is added once regardless of how many `rule_ids` it
-contains.
+not. Each batch record is added to the totals once regardless of how many
+`rule_ids` it contains. Only the per-rule counter of HTTP records counts it
+once under each of its rules; that counter is published in the dashboard's
+`insights.json`, not in the rollups.
 
 UTC hourly buckets feed hourly, daily, monthly, and yearly accumulators.
 Generated public files expose totals, source ID/epoch/kind provenance, and the

@@ -91,6 +91,9 @@ type InsightsWindow struct {
 	Usernames    []ValueTotal   `json:"usernames"`
 	Passwords    []ValueTotal   `json:"passwords"`
 	Paths        []ValueTotal   `json:"paths"`
+	// Rules counts HTTP observations per classifier rule; a probe that
+	// matched several rules counts under each, so the sum can exceed HTTP.
+	Rules []ValueTotal `json:"rules"`
 }
 
 // IPVersionTotals counts observations by address family. Unattributed
@@ -331,6 +334,7 @@ func buildWindow(id string, start, end time.Time, periods []PeriodLedger, kinds 
 	usernames := map[string]uint64{}
 	passwords := map[string]uint64{}
 	paths := map[string]uint64{}
+	rules := map[string]uint64{}
 	exact := true
 	for _, period := range periods {
 		window.Total += period.Total
@@ -346,6 +350,7 @@ func buildWindow(id string, start, end time.Time, periods []PeriodLedger, kinds 
 			{usernames, period.Usernames},
 			{passwords, period.Passwords},
 			{paths, period.Paths},
+			{rules, period.Rules},
 		} {
 			for key, count := range merge.from {
 				merge.into[key] += count
@@ -357,6 +362,7 @@ func buildWindow(id string, start, end time.Time, periods []PeriodLedger, kinds 
 	window.Usernames = limitValues(topValues(usernames), insightsTopValues)
 	window.Passwords = limitValues(topValues(passwords), insightsTopValues)
 	window.Paths = limitValues(topValues(paths), insightsTopValues)
+	window.Rules = limitValues(topValues(rules), insightsTopValues)
 
 	countries := map[string]*CountryTotal{}
 	networks := map[uint32]*NetworkTotal{}

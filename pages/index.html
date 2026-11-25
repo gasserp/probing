@@ -31,7 +31,7 @@
     </header>
     <div class="status">
       <div class="status-meta" aria-live="polite">
-        <span id="freshness" class="badge" data-layout="2">Loading data</span>
+        <span id="freshness" class="badge" data-layout="3">Loading data</span>
         <span id="updated"></span>
       </div>
       <div class="range" role="radiogroup" aria-label="Time range">
@@ -195,7 +195,7 @@
         </article>
       </section>
 
-      <section class="tables three" aria-label="Credential and application surface">
+      <section class="tables two" aria-label="Credential surface">
         <article class="panel list-panel">
           <p class="card-kicker">Credential surface</p>
           <h2>Top attempted usernames</h2>
@@ -206,10 +206,18 @@
           <h2>Top attempted passwords <span class="muted">(decoys only)</span></h2>
           <ol id="passwords" class="ranked"></ol>
         </article>
+      </section>
+
+      <section class="tables two" aria-label="Application surface">
         <article class="panel list-panel">
           <p class="card-kicker">Application surface</p>
           <h2>Top eligible HTTP paths</h2>
           <ol id="paths" class="ranked"></ol>
+        </article>
+        <article class="panel list-panel">
+          <p class="card-kicker">Application surface</p>
+          <h2>Top matched HTTP rules</h2>
+          <ol id="rules" class="ranked"></ol>
         </article>
       </section>
     </main>
