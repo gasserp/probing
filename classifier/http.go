@@ -15,6 +15,42 @@ const (
 	RuleHTTPSensitiveFile = "http/sensitive-file-v1"
 )
 
+// cveSignatures match probes for known CVEs. Each pattern is matched against
+// the lowercased request target, including the query, in its raw and
+// percent-decoded forms. The query is only inspected here; it is never
+// published, stored, or hashed. Each pattern names the vulnerable endpoint or
+// payload itself, not a product's landing page, so fingerprinting alone does
+// not match.
+var cveSignatures = []struct {
+	ruleID  string
+	pattern *regexp.Regexp
+}{
+	// PHPUnit eval-stdin.php remote code execution.
+	{"http/cve-2017-9841-v1", regexp.MustCompile(`/phpunit/.*eval-stdin\.php`)},
+	// Dasan GPON router authentication bypass (with CVE-2018-10562).
+	{"http/cve-2018-10561-v1", regexp.MustCompile(`/gponform/diag_form`)},
+	// FortiOS SSL VPN path traversal.
+	{"http/cve-2018-13379-v1", regexp.MustCompile(`/remote/fgt_lang`)},
+	// ThinkPHP invokefunction remote code execution (also CVE-2019-9082).
+	{"http/cve-2018-20062-v1", regexp.MustCompile(`invokefunction`)},
+	// Cisco ASA and FTD web services file read.
+	{"http/cve-2020-3452-v1", regexp.MustCompile(`/\+cscot\+/`)},
+	// Hikvision web server command injection.
+	{"http/cve-2021-36260-v1", regexp.MustCompile(`/sdk/weblanguage`)},
+	// FortiOS administrative interface authentication bypass.
+	{"http/cve-2022-40684-v1", regexp.MustCompile(`/api/v2/cmdb/system/admin`)},
+	// TP-Link Archer AX21 locale command injection.
+	{"http/cve-2023-1389-v1", regexp.MustCompile(`/cgi-bin/luci/;stok=/locale`)},
+	// TBK DVR command injection.
+	{"http/cve-2024-3721-v1", regexp.MustCompile(`/device\.rsp\?.*cmd=___s_o_s_t_r_e_a_max___`)},
+	// PHP-CGI argument injection.
+	{"http/cve-2024-4577-v1", regexp.MustCompile(`\?.*allow_url_include`)},
+	// Vite dev server arbitrary file read.
+	{"http/cve-2025-30208-v1", regexp.MustCompile(`/@fs/`)},
+	// SAP NetWeaver Visual Composer unauthenticated upload.
+	{"http/cve-2025-31324-v1", regexp.MustCompile(`/developmentserver/metadatauploader`)},
+}
+
 type HTTPConfig struct {
 	EligibleStatuses      []int
 	ExcludedExactPaths    []string
@@ -110,20 +146,7 @@ func (c *HTTPClassifier) Classify(request HTTPRequest) (HTTPDecision, error) {
 		}
 	}
 
-	representations := []pathRepresentation{{name: "raw", value: path}}
-	current := path
-	for pass := 1; pass <= 2; pass++ {
-		decoded, err := url.PathUnescape(current)
-		if err != nil || decoded == current {
-			break
-		}
-		name := "decoded_once"
-		if pass == 2 {
-			name = "decoded_twice"
-		}
-		representations = append(representations, pathRepresentation{name: name, value: decoded})
-		current = decoded
-	}
+	representations := decodedRepresentations(path)
 
 	for _, representation := range representations {
 		if c.isExcluded(representation.value) || c.containsSensitiveData(representation.value) {
@@ -148,6 +171,17 @@ func (c *HTTPClassifier) Classify(request HTTPRequest) (HTTPDecision, error) {
 			}
 		}
 	}
+	for _, representation := range decodedRepresentations(stripFragment(request.RequestTarget)) {
+		value := strings.ToLower(representation.value)
+		for _, signature := range cveSignatures {
+			if signature.pattern.MatchString(value) {
+				rules = insertSortedUnique(rules, signature.ruleID)
+				if matchedRepresentation == "" {
+					matchedRepresentation = representation.name
+				}
+			}
+		}
+	}
 	if len(rules) == 0 {
 		return HTTPDecision{}, nil
 	}
@@ -163,6 +197,31 @@ func (c *HTTPClassifier) Classify(request HTTPRequest) (HTTPDecision, error) {
 type pathRepresentation struct {
 	name  string
 	value string
+}
+
+func decodedRepresentations(value string) []pathRepresentation {
+	representations := []pathRepresentation{{name: "raw", value: value}}
+	current := value
+	for pass := 1; pass <= 2; pass++ {
+		decoded, err := url.PathUnescape(current)
+		if err != nil || decoded == current {
+			break
+		}
+		name := "decoded_once"
+		if pass == 2 {
+			name = "decoded_twice"
+		}
+		representations = append(representations, pathRepresentation{name: name, value: decoded})
+		current = decoded
+	}
+	return representations
+}
+
+func stripFragment(requestTarget string) string {
+	if index := strings.IndexByte(requestTarget, '#'); index >= 0 {
+		return requestTarget[:index]
+	}
+	return requestTarget
 }
 
 func stripQueryAndFragment(requestTarget string) string {
@@ -205,8 +264,41 @@ func containsSensitiveFileProbe(path string) bool {
 		"/etc/shadow",
 		"/windows/win.ini",
 		"/.env",
-		"/.git/config",
+		"/.git/",
 		"/proc/self/environ",
+		// Credential and secret stores.
+		"/.aws/",
+		"/.docker/config.json",
+		"/.kube/config",
+		"/.git-credentials",
+		"/.netrc",
+		"/.npmrc",
+		"/.pypirc",
+		"/.htpasswd",
+		"/id_rsa",
+		"/credentials.json",
+		"/google-credentials.json",
+		"/application_default_credentials.json",
+		"/service-account.json",
+		"/secrets.",
+		// Application and deployment configuration that holds secrets.
+		"/appsettings.",
+		"/local.settings.json",
+		"/web.config",
+		"/wp-config.php",
+		"/settings.py",
+		"/database.yml",
+		"/application.yml",
+		"/application.properties",
+		"/docker-compose.",
+		"/terraform.tfstate",
+		"/.gitlab-ci.yml",
+		"/.circleci/config.yml",
+		// Database dumps.
+		"/backup.sql",
+		"/dump.sql",
+		"/db.sql",
+		"/database.sql",
 	} {
 		if strings.Contains(path, candidate) {
 			return true
