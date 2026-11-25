@@ -56,11 +56,12 @@ jobs:
       - name: Resolve geolocation month
         id: geoip-month
         run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      # Kept outside the source tree: geoip/ is the Go package.
       - uses: actions/cache/restore@v4
         with:
-          path: geoip
-          key: dbip-lite-${{ steps.geoip-month.outputs.month }}
-          restore-keys: dbip-lite-
+          path: .dbip
+          key: dbip-lite-v2-${{ steps.geoip-month.outputs.month }}
+          restore-keys: dbip-lite-v2-
       - name: Fetch geolocation databases
         id: geoip
         continue-on-error: true
@@ -68,32 +69,32 @@ jobs:
           MONTH: ${{ steps.geoip-month.outputs.month }}
         run: |
           set -eu
-          mkdir -p geoip
-          if [ -s "geoip/dbip-country-lite-$MONTH.csv.gz" ] && [ -s "geoip/dbip-asn-lite-$MONTH.csv.gz" ]; then
+          mkdir -p .dbip
+          if [ -s ".dbip/dbip-country-lite-$MONTH.csv.gz" ] && [ -s ".dbip/dbip-asn-lite-$MONTH.csv.gz" ]; then
             echo "DB-IP Lite $MONTH restored from cache"
             exit 0
           fi
-          mkdir -p geoip-new
+          mkdir -p .dbip-new
           for name in country asn; do
             curl -fsSL --retry 3 --max-time 300 \
-              -o "geoip-new/dbip-$name-lite-$MONTH.csv.gz" \
+              -o ".dbip-new/dbip-$name-lite-$MONTH.csv.gz" \
               "https://download.db-ip.com/free/dbip-$name-lite-$MONTH.csv.gz"
-            gzip -t "geoip-new/dbip-$name-lite-$MONTH.csv.gz"
+            gzip -t ".dbip-new/dbip-$name-lite-$MONTH.csv.gz"
           done
-          rm -rf geoip
-          mv geoip-new geoip
+          rm -rf .dbip
+          mv .dbip-new .dbip
           echo "downloaded=true" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/save@v4
         if: steps.geoip.outputs.downloaded == 'true'
         with:
-          path: geoip
-          key: dbip-lite-${{ steps.geoip-month.outputs.month }}
+          path: .dbip
+          key: dbip-lite-v2-${{ steps.geoip-month.outputs.month }}
       - name: Build dashboard insights
         run: |
           set -eu
           set --
-          country="$(ls geoip/dbip-country-lite-*.csv.gz 2>/dev/null | tail -n 1 || true)"
-          asn="$(ls geoip/dbip-asn-lite-*.csv.gz 2>/dev/null | tail -n 1 || true)"
+          country="$(ls .dbip/dbip-country-lite-*.csv.gz 2>/dev/null | tail -n 1 || true)"
+          asn="$(ls .dbip/dbip-asn-lite-*.csv.gz 2>/dev/null | tail -n 1 || true)"
           if [ -n "$country" ]; then set -- "$@" -country-db "$country"; fi
           if [ -n "$asn" ]; then set -- "$@" -asn-db "$asn"; fi
           go run ./cmd/probing-insights \
