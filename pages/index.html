@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Probing attack surface</title>
     <meta name="description" content="Global view of self-reported suspected SSH and HTTP probes seen by registered probing sensors.">
-    <link rel="stylesheet" href="styles.css">
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="styles.css?v=dev">
+    <script src="app.js?v=dev" defer></script>
   </head>
   <body>
     <header class="masthead">
@@ -31,7 +31,7 @@
     </header>
     <div class="status">
       <div class="status-meta" aria-live="polite">
-        <span id="freshness" class="badge">Loading data</span>
+        <span id="freshness" class="badge" data-layout="2">Loading data</span>
         <span id="updated"></span>
       </div>
       <div class="range" role="radiogroup" aria-label="Time range">

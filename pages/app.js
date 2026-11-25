@@ -635,13 +635,44 @@ function setRange(range) {
 
 function renderUnavailableDashboard(message) {
   for (const id of ["countries", "networks", "source-ips", "usernames", "passwords", "paths", "sensors"]) {
-    renderRanked(id, [], message);
+    if (document.getElementById(id)) renderRanked(id, [], message);
   }
   for (const id of ["map", "timeline", "ips-chart", "heatmap", "ip-versions"]) {
     const node = document.getElementById(id);
+    if (!node) continue;
     node.replaceChildren(el("p", "empty-state", message));
     node.classList.add("is-empty");
   }
+}
+
+function showFailure(badge, detail) {
+  const freshness = document.getElementById("freshness");
+  if (freshness) {
+    freshness.textContent = badge;
+    freshness.classList.add("error");
+  }
+  setText("updated", detail);
+}
+
+// The page and this script are versioned together at deploy time, but a
+// browser can still hold a cached page from an older deploy. Reload once to
+// fetch the current page; if that does not help, say so instead of hanging.
+function layoutMatches() {
+  const freshness = document.getElementById("freshness");
+  if (freshness && freshness.dataset.layout === "2") return true;
+  let reloaded = false;
+  try {
+    reloaded = window.sessionStorage.getItem("probing-layout-reload") === "1";
+    if (!reloaded) window.sessionStorage.setItem("probing-layout-reload", "1");
+  } catch {
+    reloaded = true;
+  }
+  if (!reloaded) {
+    window.location.reload();
+  } else {
+    showFailure("Page out of date", "The dashboard was updated. Reload the page to see the current version.");
+  }
+  return false;
 }
 
 function setupControls() {
@@ -677,7 +708,7 @@ function setupControls() {
 async function load() {
   const [insightsResponse, worldResponse] = await Promise.all([
     fetch("data/insights.json", { cache: "no-store" }),
-    fetch("world.json").catch(() => null),
+    fetch("world.json", { cache: "no-cache" }).catch(() => null),
   ]);
   if (!insightsResponse.ok) throw new Error("insights fetch failed");
   const insights = await insightsResponse.json();
@@ -704,11 +735,15 @@ async function load() {
   setText("updated", `Last accepted batch: ${updatedAt.toISOString()}`);
 }
 
-setupControls();
-load().catch(() => {
-  renderUnavailableDashboard("Data unavailable");
-  const freshness = document.getElementById("freshness");
-  freshness.textContent = "Data unavailable";
-  freshness.classList.add("error");
-  setText("updated", "The published data files could not be validated.");
-});
+if (layoutMatches()) {
+  try {
+    window.sessionStorage.removeItem("probing-layout-reload");
+  } catch {
+    // Storage may be unavailable; the reload guard is best effort.
+  }
+  setupControls();
+  load().catch(() => {
+    renderUnavailableDashboard("Data unavailable");
+    showFailure("Data unavailable", "The published data files could not be validated.");
+  });
+}
