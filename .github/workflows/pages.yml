@@ -9,7 +9,10 @@ on:
     paths:
       - "pages/**"
       - "denylist/**"
+      - "geoip/**"
+      - "ingest/**"
       - "cmd/probing-deny-list/**"
+      - "cmd/probing-insights/**"
       - ".github/workflows/pages.yml"
 
 permissions:
@@ -40,11 +43,64 @@ jobs:
           test -f probing-data/data/rollups/hourly.json
           test -f probing-data/data/rollups/yearly.json
           mkdir -p _site/data
-          cp pages/index.html pages/styles.css pages/app.js _site/
+          cp pages/index.html pages/styles.css pages/app.js pages/world.json _site/
           cp probing-data/data/rollups/*.json _site/data/
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      # DB-IP publishes its free country and ASN databases once a month
+      # (CC BY 4.0, attributed in the dashboard footer). Cache them so the
+      # hourly build downloads each month's files once. If the new month is
+      # not out yet, or the download fails, the previous files are used; with
+      # none at all the dashboard publishes without countries and networks.
+      - name: Resolve geolocation month
+        id: geoip-month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: geoip
+          key: dbip-lite-${{ steps.geoip-month.outputs.month }}
+          restore-keys: dbip-lite-
+      - name: Fetch geolocation databases
+        id: geoip
+        continue-on-error: true
+        env:
+          MONTH: ${{ steps.geoip-month.outputs.month }}
+        run: |
+          set -eu
+          mkdir -p geoip
+          if [ -s "geoip/dbip-country-lite-$MONTH.csv.gz" ] && [ -s "geoip/dbip-asn-lite-$MONTH.csv.gz" ]; then
+            echo "DB-IP Lite $MONTH restored from cache"
+            exit 0
+          fi
+          mkdir -p geoip-new
+          for name in country asn; do
+            curl -fsSL --retry 3 --max-time 300 \
+              -o "geoip-new/dbip-$name-lite-$MONTH.csv.gz" \
+              "https://download.db-ip.com/free/dbip-$name-lite-$MONTH.csv.gz"
+            gzip -t "geoip-new/dbip-$name-lite-$MONTH.csv.gz"
+          done
+          rm -rf geoip
+          mv geoip-new geoip
+          echo "downloaded=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/save@v4
+        if: steps.geoip.outputs.downloaded == 'true'
+        with:
+          path: geoip
+          key: dbip-lite-${{ steps.geoip-month.outputs.month }}
+      - name: Build dashboard insights
+        run: |
+          set -eu
+          set --
+          country="$(ls geoip/dbip-country-lite-*.csv.gz 2>/dev/null | tail -n 1 || true)"
+          asn="$(ls geoip/dbip-asn-lite-*.csv.gz 2>/dev/null | tail -n 1 || true)"
+          if [ -n "$country" ]; then set -- "$@" -country-db "$country"; fi
+          if [ -n "$asn" ]; then set -- "$@" -asn-db "$asn"; fi
+          go run ./cmd/probing-insights \
+            -repo probing-data \
+            -repository gasserp/probing-data \
+            -output _site/data/insights.json \
+            "$@"
       - name: Build deny lists
         run: |
           go run ./cmd/probing-deny-list \

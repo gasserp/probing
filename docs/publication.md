@@ -14,6 +14,31 @@ fragments are removed before durable storage. Operators must treat even paths
 and usernames as potentially personal or hostile text. The dashboard inserts
 all values with `textContent` and loads no third-party scripts.
 
+## Dashboard
+
+The hourly `pages` workflow publishes the dashboard from the committed
+`probing-data` ledger and rollups. Besides copying the rollups, it runs
+`probing-insights`, which writes `data/insights.json`: per-window totals for
+the last 24 hours, 7 days, 30 days, and all time, split by attack vector
+(SSH or HTTP), sensor, address family, source country, and origin network
+(ASN), plus hourly and daily series.
+
+The rollups list only the top 100 values of each dimension per period, so
+summing their `source_ips` undercounts. `insights.json` instead reads the
+ledger's full per-period counters, so its IPv4 and IPv6 counts add up to the
+total. The only exception is a period with more than 10,000 distinct source
+addresses: the ledger folds the rest into an overflow count, which the
+insights report as `unattributed`.
+
+Countries and networks come from the DB-IP IP to Country Lite and IP to ASN
+Lite databases (CC BY 4.0), which the workflow downloads once a month and
+caches. A location describes where an address is registered or routed, not
+who controls it, and VPNs, proxies, and cloud hosts make it a weak signal of
+the operator's origin. If the download fails, the previous month's files are
+used; with none at all, the dashboard is published without countries and
+networks. The world map in `pages/world.json` is generated from Natural Earth
+by `pages/tools/world-map.mjs`.
+
 ## Latency and retries
 
 The collector closes work on UTC hour boundaries and waits a fixed 30-second
@@ -83,7 +108,8 @@ Manual recovery:
 5. For sequence gaps, restore the missing envelope or perform reviewed epoch
    recovery. Do not edit the central ledger by hand.
 6. If Pages is stale but ingestion is current, manually dispatch the `pages`
-   workflow; it reads only committed `probing-data` rollups.
+   workflow; it reads only the committed `probing-data` ledger and rollups,
+   plus the cached geolocation databases.
 7. If ingest runs succeed but the rollups stop advancing and
    `data/quarantine.json` gains `invalid_envelope` entries, the collector and
    acceptance disagree on the batch wire format. See
