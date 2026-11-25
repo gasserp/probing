@@ -60,11 +60,17 @@ batch creation.
 ## HTTP classifier
 
 The query and fragment are removed and never retained. Classification inspects
-the raw path and at most two percent-decoding passes. It requires:
+the raw path and at most two percent-decoding passes. Known-CVE signatures also
+inspect the query, in memory only, because some exploit payloads exist only
+there. It requires:
 
 1. a configured eligible response status;
-2. a traversal or sensitive-file signature; and
+2. a traversal, sensitive-file, or known-CVE signature; and
 3. no match against legitimate-route or sensitive-content exclusions.
+
+Each known-CVE signature has its own rule ID, `http/cve-<year>-<number>-v1`,
+and matches the vulnerable endpoint or payload, not a product's landing page.
+The list is `cveSignatures` in `classifier/http.go`.
 
 The published value is the exact request path after query/fragment removal,
 not the decoded representation. It is an exact eligible suspected-probe path;
