@@ -536,6 +536,9 @@ func cloneLedger(ledger Ledger) Ledger {
 		if period.Passwords != nil {
 			copied.Passwords = cloneCounts(period.Passwords)
 		}
+		if period.Rules != nil {
+			copied.Rules = cloneCounts(period.Rules)
+		}
 		clone.Periods[key] = copied
 	}
 	return clone

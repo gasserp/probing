@@ -83,6 +83,7 @@ func validateLedger(ledger Ledger, repository string) error {
 			period.Usernames,
 			period.Passwords,
 			period.Paths,
+			period.Rules,
 		} {
 			if len(values) > MaxPeriodDimensionValues {
 				return errors.New("acceptance ledger period dimension exceeds its cardinality limit")

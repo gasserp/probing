@@ -23,6 +23,15 @@ the last 24 hours, 7 days, 30 days, and all time, split by attack vector
 (SSH or HTTP), sensor, address family, source country, and origin network
 (ASN), plus hourly and daily series.
 
+Each window also lists, under `rules`, the 25 HTTP classifier rules with the
+most observations. Published paths never include the query string, so
+different exploit probes against `/index.php` or `/` look the same in
+`paths`; the rule ID tells them apart, and the dashboard links each
+`http/cve-…` rule to its CVE record. A probe that matched several rules
+counts under each, so rule counts can add up to more than the HTTP total.
+Rules are counted only for batches accepted after rule counting was added to
+the ledger, so windows reaching back before that undercount them.
+
 The rollups list only the top 100 values of each dimension per period, so
 summing their `source_ips` undercounts. `insights.json` instead reads the
 ledger's full per-period counters, so its IPv4 and IPv6 counts add up to the
@@ -59,7 +68,7 @@ repository.
 Central acceptance simulates every batch against a deep copy of the ledger; a
 batch that would cross the 64 MiB serialized ledger limit is quarantined
 before sequence, chain, count, or dimension state changes. Each
-source/IP/username/path period dimension is capped at 10,000 distinct
+source/IP/username/path/rule period dimension is capped at 10,000 distinct
 values, but reaching the cap never quarantines a batch: values past the cap
 roll into that dimension's overflow count so the period total stays exact.
 Periods more than 31 days past their end are retained at reduced

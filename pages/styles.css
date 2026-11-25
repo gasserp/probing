@@ -310,7 +310,6 @@ h2 .muted { color: var(--text-faint); font-weight: 400; }
 .stack { display: grid; gap: 1.15rem; align-content: start; }
 .tables { display: grid; gap: 1.15rem; }
 .tables.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.tables.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .panel-tag {
   margin: .05rem 0 0;
@@ -448,6 +447,8 @@ li {
 li::before { color: var(--text-faint); content: counter(entries, decimal-leading-zero); font-size: .64rem; }
 li > span.value { color: var(--signal); white-space: nowrap; font-variant-numeric: tabular-nums; }
 li .meta { display: block; margin-top: .15rem; color: var(--text-faint); font-size: .66rem; }
+li a { color: inherit; text-decoration-color: var(--signal-strong); text-underline-offset: .2em; }
+li a:hover { color: var(--signal); }
 li .flag { margin-right: .35rem; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
 li .share {
   position: absolute;
@@ -514,13 +515,12 @@ li.is-active { color: #eefcff; }
 @media (max-width: 72rem) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .geo-grid { grid-template-columns: 1fr; }
-  .tables.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 52rem) {
   .masthead-content { display: block; }
   .notice { margin-top: 1.5rem; }
-  .analysis-grid, .analysis-grid.even, .tables.two, .tables.three { grid-template-columns: 1fr; }
+  .analysis-grid, .analysis-grid.even, .tables.two { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

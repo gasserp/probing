@@ -76,6 +76,10 @@ type PeriodLedger struct {
 	PasswordsOverflow uint64            `json:"passwords_overflow,omitempty"`
 	Paths             map[string]uint64 `json:"paths"`
 	PathsOverflow     uint64            `json:"paths_overflow"`
+	// Rules counts HTTP observations under each classifier rule they
+	// matched, so a record with several rule_ids counts once per rule.
+	Rules         map[string]uint64 `json:"rules,omitempty"`
+	RulesOverflow uint64            `json:"rules_overflow,omitempty"`
 }
 
 type RollupFile struct {
