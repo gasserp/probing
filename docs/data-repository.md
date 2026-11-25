@@ -200,7 +200,10 @@ contains.
 UTC hourly buckets feed hourly, daily, monthly, and yearly accumulators.
 Generated public files expose totals, source ID/epoch/kind provenance, and the
 top 100 exact source IPs, attempted usernames, attempted passwords, and
-eligible paths per period. Passwords come only from `decoy` sources that
+eligible paths per period. Because of that cut, summing a dimension across
+rollup entries undercounts; the dashboard's `insights.json` is built from the
+ledger's full counters instead (see
+[`publication.md`](publication.md#dashboard)). Passwords come only from `decoy` sources that
 capture them (such as Cowrie); the OpenSSH journal never exposes them.
 Ledger and generated files are written through `fsync` plus atomic rename, with
 the ledger written last.

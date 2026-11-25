@@ -3,101 +3,237 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Probing telemetry</title>
+    <title>Probing attack surface</title>
+    <meta name="description" content="Global view of self-reported suspected SSH and HTTP probes seen by registered probing sensors.">
     <link rel="stylesheet" href="styles.css">
     <script src="app.js" defer></script>
   </head>
   <body>
     <header class="masthead">
       <div class="masthead-topline">
-        <a class="wordmark" href="#overview" aria-label="Probing telemetry overview">
+        <a class="wordmark" href="#overview" aria-label="Probing attack surface overview">
           <span class="wordmark-mark" aria-hidden="true"></span>
-          <span>probing<span class="wordmark-muted">/telemetry</span></span>
+          <span>probing<span class="wordmark-muted">/attack-surface</span></span>
         </a>
         <p class="environment"><span aria-hidden="true"></span>Public data plane</p>
       </div>
       <div class="masthead-content">
         <div>
           <p class="eyebrow">Network observation index</p>
-          <h1>Self-reported suspected probes</h1>
+          <h1>Global attack surface</h1>
+          <p class="subtitle">Self-reported suspected probes against registered SSH and HTTP sensors.</p>
         </div>
         <p class="notice">
           These records are assertions from registered collectors. They are not
           proof of intent, ownership, compromise, or abuse.
         </p>
       </div>
-      <div class="status" aria-live="polite">
+    </header>
+    <div class="status">
+      <div class="status-meta" aria-live="polite">
         <span id="freshness" class="badge">Loading data</span>
         <span id="updated"></span>
       </div>
-    </header>
+      <div class="range" role="radiogroup" aria-label="Time range">
+        <button type="button" role="radio" data-range="24h" aria-checked="false">24h</button>
+        <button type="button" role="radio" data-range="7d" aria-checked="true">7d</button>
+        <button type="button" role="radio" data-range="30d" aria-checked="false">30d</button>
+        <button type="button" role="radio" data-range="all" aria-checked="false">All time</button>
+      </div>
+    </div>
     <main>
-      <section id="overview" class="summary" aria-label="Summary">
+      <section id="overview" class="kpis" aria-label="Summary">
         <article class="metric-card">
           <p class="card-kicker">Accepted volume</p>
-          <h2>Total accepted observations</h2>
-          <p id="total" class="metric">-</p>
+          <h2>Observations</h2>
+          <p id="kpi-total" class="metric">-</p>
+          <p id="kpi-total-sub" class="subtle"></p>
         </article>
         <article class="metric-card">
-          <p class="card-kicker">Collector coverage</p>
-          <h2>Registered source epochs reporting</h2>
-          <p id="source-count" class="metric">-</p>
-          <p id="source-kinds" class="subtle"></p>
+          <p class="card-kicker">Attackers</p>
+          <h2>Unique source IPs</h2>
+          <p id="kpi-ips" class="metric">-</p>
+          <p id="kpi-ips-sub" class="subtle"></p>
+        </article>
+        <article class="metric-card">
+          <p class="card-kicker">Geography</p>
+          <h2>Origin countries</h2>
+          <p id="kpi-countries" class="metric">-</p>
+          <p id="kpi-countries-sub" class="subtle"></p>
+        </article>
+        <article class="metric-card">
+          <p class="card-kicker">Infrastructure</p>
+          <h2>Origin networks (ASN)</h2>
+          <p id="kpi-networks" class="metric">-</p>
+          <p id="kpi-networks-sub" class="subtle"></p>
+        </article>
+        <article class="metric-card">
+          <p class="card-kicker">Attack vectors</p>
+          <h2>SSH login failures</h2>
+          <p id="kpi-ssh" class="metric">-</p>
+          <div id="kpi-vector-bar" class="split-bar" aria-hidden="true"></div>
+          <p id="kpi-ssh-sub" class="subtle"></p>
+        </article>
+        <article class="metric-card">
+          <p class="card-kicker">Deny list</p>
+          <h2>Addresses blocked now</h2>
+          <p id="kpi-deny" class="metric">-</p>
+          <p id="kpi-deny-sub" class="subtle"></p>
         </article>
       </section>
-      <section class="analysis-grid" aria-label="Observation analysis">
+
+      <section class="geo-grid" aria-label="Geography">
+        <article class="panel map-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Threat origin map</p>
+              <h2>Where probes come from</h2>
+            </div>
+            <p class="panel-tag" data-range-tag>7d window</p>
+          </div>
+          <p id="map-caption" class="subtle">Observations by country of the source address.</p>
+          <div id="map" class="map" role="img" aria-label="World map of observations by source country"></div>
+          <div id="map-legend" class="map-legend" aria-hidden="true"></div>
+        </article>
+        <article class="panel list-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Origin distribution</p>
+              <h2>Top source countries</h2>
+            </div>
+            <p class="panel-tag" data-range-tag>7d window</p>
+          </div>
+          <ol id="countries" class="ranked"></ol>
+        </article>
+      </section>
+
+      <section class="analysis-grid" aria-label="Activity">
         <article class="panel chart-panel">
           <div class="panel-heading">
             <div>
               <p class="card-kicker">Time series</p>
-              <h2>Hourly observations</h2>
+              <h2 id="timeline-title">Observations per hour</h2>
             </div>
-            <p id="chart-window" class="panel-tag">168h window</p>
+            <div class="legend" aria-hidden="true">
+              <span class="key ssh">SSH</span>
+              <span class="key http">HTTP</span>
+            </div>
           </div>
-          <p class="subtle">Latest accepted UTC hours in the published rollups.</p>
-          <div id="chart" class="chart" role="img" aria-label="Hourly observation counts"></div>
+          <p id="timeline-caption" class="subtle">Accepted observations by attack vector, UTC.</p>
+          <div id="timeline" class="chart" role="img" aria-label="Observations over time by attack vector"></div>
         </article>
-        <article class="panel protocol-panel">
+        <div class="stack">
+          <article class="panel protocol-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="card-kicker">Address family</p>
+                <h2>Source IP protocol</h2>
+              </div>
+              <p class="panel-tag" data-range-tag>7d window</p>
+            </div>
+            <div id="ip-versions" class="ipver" role="img" aria-label="Share of observations by IPv4 vs IPv6 source"></div>
+            <p id="ip-versions-note" class="subtle note"></p>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="card-kicker">Collector coverage</p>
+                <h2>Reporting sensors</h2>
+              </div>
+              <p class="panel-tag" data-range-tag>7d window</p>
+            </div>
+            <ol id="sensors" class="ranked compact"></ol>
+          </article>
+        </div>
+      </section>
+
+      <section class="analysis-grid even" aria-label="Rhythm">
+        <article class="panel">
           <div class="panel-heading">
             <div>
-              <p class="card-kicker">Address family</p>
-              <h2>Source IP protocol</h2>
+              <p class="card-kicker">Attack rhythm</p>
+              <h2>Hour of day by weekday</h2>
             </div>
-            <p class="panel-tag">Traffic mix</p>
+            <p class="panel-tag">30d · UTC</p>
           </div>
-          <p class="subtle">Share of accepted source IPs by protocol version.</p>
-          <div id="ip-versions" class="ipver" role="img" aria-label="Share of source IPs by IPv4 vs IPv6"></div>
+          <p class="subtle">Average observations per hour slot over the last 30 days.</p>
+          <div id="heatmap" class="heatmap" role="img" aria-label="Average observations by weekday and hour of day"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Attacker churn</p>
+              <h2 id="ips-title">Active source IPs per hour</h2>
+            </div>
+            <p class="panel-tag" data-range-tag>7d window</p>
+          </div>
+          <p id="ips-caption" class="subtle">Distinct addresses seen in each period.</p>
+          <div id="ips-chart" class="chart short" role="img" aria-label="Distinct source addresses over time"></div>
         </article>
       </section>
-      <section class="tables">
+
+      <section class="tables two" aria-label="Origins">
+        <article class="panel list-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Infrastructure</p>
+              <h2>Top origin networks</h2>
+            </div>
+            <p class="panel-tag" data-range-tag>7d window</p>
+          </div>
+          <ol id="networks" class="ranked"></ol>
+        </article>
+        <article class="panel list-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="card-kicker">Origin distribution</p>
+              <h2>Top source IPs</h2>
+            </div>
+            <p class="panel-tag" data-range-tag>7d window</p>
+          </div>
+          <ol id="source-ips" class="ranked"></ol>
+        </article>
+      </section>
+
+      <section class="tables three" aria-label="Credential and application surface">
         <article class="panel list-panel">
           <p class="card-kicker">Credential surface</p>
           <h2>Top attempted usernames</h2>
-          <ol id="usernames"></ol>
+          <ol id="usernames" class="ranked"></ol>
         </article>
         <article class="panel list-panel">
           <p class="card-kicker">Credential surface</p>
-          <h2>Top attempted passwords (decoys only)</h2>
-          <ol id="passwords"></ol>
+          <h2>Top attempted passwords <span class="muted">(decoys only)</span></h2>
+          <ol id="passwords" class="ranked"></ol>
         </article>
         <article class="panel list-panel">
           <p class="card-kicker">Application surface</p>
           <h2>Top eligible HTTP paths</h2>
-          <ol id="paths"></ol>
-        </article>
-        <article class="panel list-panel">
-          <p class="card-kicker">Origin distribution</p>
-          <h2>Top source IPs</h2>
-          <ol id="source-ips"></ol>
+          <ol id="paths" class="ranked"></ol>
         </article>
       </section>
     </main>
     <footer>
-      <p>Exact public source IPs, attempted usernames, and eligible paths are intentionally published for accepted promoted observations. Attempted passwords are published only from decoy sources.</p>
-      <p>
-        Request revocation or correction of a published record via a
-        <a href="https://github.com/gasserp/probing-data/issues/new?template=revocation-request.md">GitHub issue</a>.
-      </p>
+      <div>
+        <p>Exact public source IPs, attempted usernames, and eligible paths are intentionally published for accepted promoted observations. Attempted passwords are published only from decoy sources.</p>
+        <p id="attribution">
+          Country and network data: <a href="https://db-ip.com">IP Geolocation by DB-IP</a> (CC BY 4.0).
+          Map: Natural Earth (public domain). Locations describe the source address, not who controls it.
+        </p>
+      </div>
+      <div>
+        <p>
+          Request revocation or correction of a published record via a
+          <a href="https://github.com/gasserp/probing-data/issues/new?template=revocation-request.md">GitHub issue</a>.
+        </p>
+        <p>
+          Raw data: <a href="data/insights.json">insights</a> ·
+          <a href="data/yearly.json">yearly</a> · <a href="data/daily.json">daily</a> ·
+          <a href="data/hourly.json">hourly</a> rollups ·
+          <a href="deny-list/recent.txt">deny list</a>
+        </p>
+      </div>
     </footer>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
   </body>
 </html>

@@ -50,7 +50,8 @@ Early. Working today:
 - publication to your own public GitHub repository, pulled centrally, so
   contributing needs no access to anyone else's infrastructure;
 - central validation, replay protection, and hourly to yearly rollups;
-- a public dashboard: <https://gasserp.github.io/probing/>;
+- a public dashboard: <https://gasserp.github.io/probing/>, with a world map
+  of source countries, origin networks, attack vectors, and hourly rhythm;
 - hourly deny lists in plain text, nftables, and ipset format, with a
   72-hour `recent` and a 30-day `persistent` list
   ([`docs/deny-list.md`](docs/deny-list.md)).
