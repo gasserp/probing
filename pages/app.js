@@ -337,11 +337,89 @@ function renderIPVersions(view) {
 
 // ---------- world map ----------
 
+const MAP_MAX_ZOOM = 8;
 let mapPaths = new Map();
+// The visible part of the map in world.json units: zoom factor and top-left
+// corner. It outlives re-renders, so switching range keeps the view.
+const mapView = { k: 1, x: 0, y: 0 };
+let mapRoot = null;
+let mapMarkers = [];
 
 function highlightCountry(code, on) {
   const path = mapPaths.get(code);
   if (path) path.classList.toggle("is-active", on);
+}
+
+function applyMapView() {
+  if (!mapRoot) return;
+  const world = state.world;
+  const width = world.width / mapView.k;
+  const height = world.height / mapView.k;
+  mapView.x = Math.min(Math.max(mapView.x, 0), world.width - width);
+  mapView.y = Math.min(Math.max(mapView.y, 0), world.height - height);
+  mapRoot.setAttribute("viewBox", `${mapView.x.toFixed(2)} ${mapView.y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)}`);
+  mapRoot.style.setProperty("--k", String(mapView.k));
+  mapRoot.classList.toggle("is-zoomed", mapView.k > 1);
+  // Markers keep their size on screen at any zoom.
+  for (const { node, x, y } of mapMarkers) node.setAttribute("transform", `translate(${x} ${y}) scale(${(1 / mapView.k).toFixed(4)})`);
+  for (const button of document.querySelectorAll("#map-zoom button")) {
+    button.disabled = button.dataset.zoom === "in" ? mapView.k >= MAP_MAX_ZOOM : mapView.k <= 1;
+  }
+}
+
+// Zooms by factor around (fx, fy) in world units, which stays put on screen.
+function zoomMap(factor, fx, fy) {
+  const k = Math.min(MAP_MAX_ZOOM, Math.max(1, mapView.k * factor));
+  mapView.x = fx - (fx - mapView.x) * (mapView.k / k);
+  mapView.y = fy - (fy - mapView.y) * (mapView.k / k);
+  mapView.k = k;
+  applyMapView();
+}
+
+function bindMapGestures(root) {
+  // A trackpad pinch arrives as a wheel event with ctrlKey set. A plain
+  // wheel keeps scrolling the page.
+  root.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const rect = root.getBoundingClientRect();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+    zoomMap(2 ** (-delta / 150),
+      mapView.x + ((event.clientX - rect.left) / rect.width) * (state.world.width / mapView.k),
+      mapView.y + ((event.clientY - rect.top) / rect.height) * (state.world.height / mapView.k));
+  }, { passive: false });
+
+  let drag = null;
+  const endDrag = () => {
+    drag = null;
+    root.classList.remove("is-dragging");
+  };
+  root.addEventListener("pointerdown", (event) => {
+    if (mapView.k > 1 && event.button === 0) drag = { id: event.pointerId, x: event.clientX, y: event.clientY, viewX: mapView.x, viewY: mapView.y, moving: false };
+  });
+  root.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!event.buttons) {
+      endDrag();
+      return;
+    }
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.moving) {
+      // Until the pointer moves it is a tap, so touch still gets tooltips.
+      if (Math.hypot(dx, dy) < 4) return;
+      drag.moving = true;
+      root.setPointerCapture(event.pointerId);
+      root.classList.add("is-dragging");
+      tooltip.hide();
+    }
+    const scale = state.world.width / mapView.k / root.getBoundingClientRect().width;
+    mapView.x = drag.viewX - dx * scale;
+    mapView.y = drag.viewY - dy * scale;
+    applyMapView();
+  });
+  root.addEventListener("pointerup", endDrag);
+  root.addEventListener("pointercancel", endDrag);
 }
 
 function renderMap(view) {
@@ -350,7 +428,10 @@ function renderMap(view) {
   container.replaceChildren();
   legend.replaceChildren();
   mapPaths = new Map();
+  mapRoot = null;
+  mapMarkers = [];
   const world = state.world;
+  document.getElementById("map-zoom").hidden = !world;
   if (!world) {
     container.appendChild(el("p", "empty-state", "The world map could not be loaded."));
     return;
@@ -394,20 +475,26 @@ function renderMap(view) {
   top.forEach((item, index) => {
     const [x, y] = centroids.get(item.code);
     const radius = 2.5 + 11 * Math.sqrt(item.count / maximum);
-    svg("circle", { cx: x, cy: y, r: radius.toFixed(1), class: "bubble" }, bubbles);
-    const pulse = svg("circle", { cx: x, cy: y, r: radius.toFixed(1), class: "pulse" }, bubbles);
+    // Drawn around the origin; applyMapView places and scales it.
+    const marker = svg("g", {}, bubbles);
+    mapMarkers.push({ node: marker, x, y });
+    svg("circle", { cx: 0, cy: 0, r: radius.toFixed(1), class: "bubble" }, marker);
+    const pulse = svg("circle", { cx: 0, cy: 0, r: radius.toFixed(1), class: "pulse" }, marker);
     pulse.style.animationDelay = `${(index * 0.27).toFixed(2)}s`;
-    svg("circle", { cx: x, cy: y, r: 1.6, class: "bubble-core", filter: "url(#glow)" }, bubbles);
+    svg("circle", { cx: 0, cy: 0, r: 1.6, class: "bubble-core", filter: "url(#glow)" }, marker);
     // Label a bubble only where the code fits clear of earlier labels.
     const box = { x: x + radius + 3, y: y - 5, w: 16, h: 10 };
     const clear = placed.every((other) => box.x > other.x + other.w || box.x + box.w < other.x || box.y > other.y + other.h || box.y + box.h < other.y);
     if (index < 8 && clear) {
       placed.push(box);
-      const label = svg("text", { x: box.x.toFixed(1), y: (y + 3).toFixed(1), class: "label" }, bubbles);
+      const label = svg("text", { x: (radius + 3).toFixed(1), y: 3, class: "label" }, marker);
       label.textContent = item.code;
     }
   });
   container.appendChild(root);
+  mapRoot = root;
+  bindMapGestures(root);
+  applyMapView();
   container.setAttribute("aria-label", top.length
     ? `World map of observations by source country. Top origins: ${top.slice(0, 5).map((item) => `${countryName(item.code)} ${number.format(item.count)}`).join(", ")}.`
     : "World map of observations by source country");
@@ -676,7 +763,7 @@ function showFailure(badge, detail) {
 // fetch the current page; if that does not help, say so instead of hanging.
 function layoutMatches() {
   const freshness = document.getElementById("freshness");
-  if (freshness && freshness.dataset.layout === "3") return true;
+  if (freshness && freshness.dataset.layout === "4") return true;
   let reloaded = false;
   try {
     reloaded = window.sessionStorage.getItem("probing-layout-reload") === "1";
@@ -708,6 +795,19 @@ function setupControls() {
       next.focus();
     }
   });
+  for (const button of document.querySelectorAll("#map-zoom button")) {
+    button.addEventListener("click", () => {
+      if (!mapRoot) return;
+      if (button.dataset.zoom === "reset") {
+        mapView.k = 1;
+        applyMapView();
+        return;
+      }
+      const width = state.world.width / mapView.k;
+      const height = state.world.height / mapView.k;
+      zoomMap(button.dataset.zoom === "in" ? 2 : 0.5, mapView.x + width / 2, mapView.y + height / 2);
+    });
+  }
   const status = document.querySelector(".status");
   const observer = "IntersectionObserver" in window ? new IntersectionObserver(([entry]) => {
     status.classList.toggle("is-stuck", entry.intersectionRatio < 1);

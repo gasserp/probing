@@ -31,7 +31,7 @@
     </header>
     <div class="status">
       <div class="status-meta" aria-live="polite">
-        <span id="freshness" class="badge" data-layout="3">Loading data</span>
+        <span id="freshness" class="badge" data-layout="4">Loading data</span>
         <span id="updated"></span>
       </div>
       <div class="range" role="radiogroup" aria-label="Time range">
@@ -92,7 +92,14 @@
             <p class="panel-tag" data-range-tag>7d window</p>
           </div>
           <p id="map-caption" class="subtle">Observations by country of the source address.</p>
-          <div id="map" class="map" role="img" aria-label="World map of observations by source country"></div>
+          <div class="map-frame">
+            <div id="map" class="map" role="img" aria-label="World map of observations by source country"></div>
+            <div id="map-zoom" class="map-zoom" role="group" aria-label="Map zoom" hidden>
+              <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+              <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+              <button type="button" data-zoom="reset">Reset</button>
+            </div>
+          </div>
           <div id="map-legend" class="map-legend" aria-hidden="true"></div>
         </article>
         <article class="panel list-panel">
