@@ -11,6 +11,14 @@ const RANGES = { "24h": "24h window", "7d": "7d window", "30d": "30d window", al
 const RANGE_PHRASE = { "24h": "previous 24h", "7d": "previous 7d", "30d": "previous 30d" };
 // Map and heatmap steps: decades of observations.
 const LEVELS = [1, 10, 100, 1000, 10000, 100000];
+const CVE_RULE = /^http\/cve-(\d{4})-(\d{4,})-v\d+$/;
+// What each HTTP rule matches, shown when hovering its row. All CVE rules
+// share one note, since each CVE ID links to its own record.
+const RULE_NOTES = {
+  "http/path-traversal-v1": "The path tries to climb out of the web root with ../, also when it is percent-encoded once or twice.",
+  "http/sensitive-file-v1": "The path asks for a file that usually holds secrets, such as .env, .git/, wp-config.php, .aws/ credentials, SSH keys, Terraform state, or a database dump. It targets a misconfigured server, not a bug in one product, so there is no CVE.",
+  cve: "The request matches the exploit for this known vulnerability. Click the ID to open its record on cve.org.",
+};
 
 const state = { insights: null, world: null, range: "7d", resizeTimer: 0, width: 0 };
 
@@ -85,6 +93,10 @@ const tooltip = {
     const node = this.node;
     node.replaceChildren(el("strong", "", title));
     for (const row of rows) {
+      if (row.text) {
+        node.appendChild(el("p", "", row.text));
+        continue;
+      }
       const line = el("div", "row");
       const label = el("span", row.key ? `key ${row.key}` : "", row.label);
       line.append(label, el("span", "", row.value));
@@ -230,7 +242,7 @@ function renderRanked(id, rows, emptyText = "No accepted values") {
       link.href = row.href;
       label.appendChild(link);
     } else {
-      label.appendChild(document.createTextNode(row.label));
+      label.appendChild(row.tooltip ? el("span", "has-tip", row.label) : document.createTextNode(row.label));
     }
     if (row.tag) label.appendChild(el("span", "tag", row.tag));
     if (row.meta) label.appendChild(el("span", "meta", row.meta));
@@ -243,6 +255,17 @@ function renderRanked(id, rows, emptyText = "No accepted values") {
     list.appendChild(item);
     return item;
   });
+}
+
+// Tooltip content for a rule row, or undefined for a rule without a note.
+function ruleTooltip(rule, title) {
+  const cve = CVE_RULE.test(rule);
+  const note = RULE_NOTES[cve ? "cve" : rule];
+  if (!note) return undefined;
+  const rows = [{ text: note }];
+  const version = /-v(\d+)$/.exec(rule);
+  if (version) rows.push({ label: "Rule version", value: version[1] });
+  return () => [title, rows];
 }
 
 function renderLists(view) {
@@ -285,10 +308,10 @@ function renderLists(view) {
   // link is built from the matched digits only.
   renderRanked("rules", (view.rules || []).slice(0, 15).map((item) => {
     const meta = `${percent.format(share(item.count, view.http))} of HTTP probes`;
-    const cve = /^http\/cve-(\d{4})-(\d{4,})-v\d+$/.exec(item.value);
-    if (!cve) return { label: item.value, count: item.count, meta };
+    const cve = CVE_RULE.exec(item.value);
+    if (!cve) return { label: item.value, count: item.count, meta, tooltip: ruleTooltip(item.value, item.value) };
     const id = `CVE-${cve[1]}-${cve[2]}`;
-    return { label: id, href: `https://www.cve.org/CVERecord?id=${id}`, count: item.count, meta: `${item.value} · ${meta}` };
+    return { label: id, href: `https://www.cve.org/CVERecord?id=${id}`, count: item.count, meta: `${item.value} · ${meta}`, tooltip: ruleTooltip(item.value, id) };
   }));
 
   renderRanked("sensors", (view.sources || []).map((item) => ({

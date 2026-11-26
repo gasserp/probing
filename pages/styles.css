@@ -480,6 +480,8 @@ li > span.value { color: var(--signal); white-space: nowrap; font-variant-numeri
 li .meta { display: block; margin-top: .15rem; color: var(--text-faint); font-size: .66rem; }
 li a { color: inherit; text-decoration-color: var(--signal-strong); text-underline-offset: .2em; }
 li a:hover { color: var(--signal); }
+li .has-tip { cursor: help; text-decoration: underline dotted var(--text-faint); text-underline-offset: .2em; }
+li .has-tip:hover { color: var(--signal); }
 li .flag { margin-right: .35rem; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
 li .share {
   position: absolute;
@@ -530,6 +532,7 @@ li.is-active { color: #eefcff; }
 .tooltip .row { display: flex; justify-content: space-between; gap: 1rem; }
 .tooltip .row span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }
 .tooltip .key { color: var(--text-muted); }
+.tooltip p { margin: 0 0 .45rem; color: var(--text-muted); }
 
 @keyframes pulse {
   0% { opacity: .9; transform: scale(1); }
