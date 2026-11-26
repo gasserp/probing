@@ -327,15 +327,15 @@ h2 .muted { color: var(--text-faint); font-weight: 400; }
 /* Map */
 .map { position: relative; margin-top: 1rem; }
 .map svg { display: block; width: 100%; height: auto; }
-.map .sphere { fill: rgb(8 20 31 / 70%); stroke: var(--line); stroke-width: .6; }
-.map .graticule { fill: none; stroke: rgb(67 90 114 / 22%); stroke-width: .5; }
+.map .sphere { fill: rgb(8 20 31 / 70%); stroke: var(--line); stroke-width: calc(.6px / var(--k, 1)); }
+.map .graticule { fill: none; stroke: rgb(67 90 114 / 22%); stroke-width: calc(.5px / var(--k, 1)); }
 .map .country {
   stroke: #0a1520;
-  stroke-width: .45;
+  stroke-width: calc(.45px / var(--k, 1));
   transition: fill .25s ease, opacity .2s ease;
 }
 .map .country.has-data { cursor: pointer; }
-.map .country:hover, .map .country.is-active { stroke: #eefcff; stroke-width: 1; }
+.map .country:hover, .map .country.is-active { stroke: #eefcff; stroke-width: calc(1px / var(--k, 1)); }
 .map .bubble { fill: rgb(110 231 242 / 18%); stroke: var(--signal); stroke-width: 1; pointer-events: none; }
 .map .bubble-core { fill: #eefcff; pointer-events: none; }
 .map .pulse {
@@ -348,6 +348,37 @@ h2 .muted { color: var(--text-faint); font-weight: 400; }
   animation: pulse 2.8s ease-out infinite;
 }
 .map .label { fill: var(--text-soft); font-size: 9px; pointer-events: none; paint-order: stroke; stroke: #071018; stroke-width: 3px; }
+.map svg.is-zoomed { cursor: grab; touch-action: pinch-zoom; -webkit-user-select: none; user-select: none; }
+.map svg.is-zoomed .country { cursor: grab; }
+.map svg.is-dragging, .map svg.is-dragging .country { cursor: grabbing; }
+.map-frame { position: relative; }
+.map-zoom {
+  position: absolute;
+  bottom: .5rem;
+  left: .5rem;
+  display: flex;
+  border: 1px solid var(--line);
+  background: rgb(9 19 30 / 92%);
+}
+.map-zoom[hidden] { display: none; }
+.map-zoom button {
+  min-width: 2rem;
+  padding: .35rem .6rem;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: .7rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.map-zoom button:not([data-zoom="reset"]) { font-size: 1rem; line-height: 1; }
+.map-zoom button:last-child { border-right: 0; }
+.map-zoom button:hover:not(:disabled) { color: var(--text); background: rgb(110 231 242 / 6%); }
+.map-zoom button:disabled { opacity: .4; cursor: default; }
+.map-zoom button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .lvl-0 { fill: var(--seq-0); }
 .lvl-1 { fill: var(--seq-1); }
 .lvl-2 { fill: var(--seq-2); }
